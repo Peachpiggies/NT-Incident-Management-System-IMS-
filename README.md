@@ -10,6 +10,7 @@ Prerequisites:
 - Python 3.11+ (local dev, optional if using containers)
 
 1. Copy `.env.example` to `.env` and adjust values.
+
 2. Start services:
    ```bash
    docker compose up --build
