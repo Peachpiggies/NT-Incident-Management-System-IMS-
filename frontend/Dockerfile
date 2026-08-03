@@ -2,10 +2,12 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-COPY frontend/package.json frontend/pnpm-lock.yaml* ./
+# Copy package files from the build context (frontend/) into the image
+COPY package.json package-lock.json ./
 RUN npm install -g pnpm && pnpm install
 
-COPY frontend /app
+# Copy the rest of the frontend source
+COPY . .
 
 ENV NODE_ENV=development
 
