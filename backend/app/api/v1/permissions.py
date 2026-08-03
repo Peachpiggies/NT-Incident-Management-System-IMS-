@@ -20,6 +20,8 @@ PERMISSIONS = {
         "ticket:receive_escalated",
         "ticket:resolve",
         "ticket:internal_note",
+        "ticket:close",
+        "ticket:reopen",
     ],
     Role.MANAGER.value: [
         "dashboard:view",
