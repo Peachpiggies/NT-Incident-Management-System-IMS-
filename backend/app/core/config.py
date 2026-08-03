@@ -1,22 +1,25 @@
-from pydantic import BaseSettings, AnyHttpUrl
-from typing import List
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
 
 class Settings(BaseSettings):
-    
-    POSTGRES_USER: str
-    POSTGRES_PASSWORD: str
-    POSTGRES_DB: str
-    POSTGRES_HOST: str = "db"
-    POSTGRES_PORT: int = 5432
-    DATABASE_URL: str
+    """Runtime configuration loaded from environment variables."""
 
-    JWT_SECRET: str
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    BACKEND_CORS_ORIGINS: List[AnyHttpUrl] = ["http://localhost:3000"]
+    app_name: str = "NT Incident Management System"
+    environment: str = "development"
+    log_level: str = "INFO"
+    database_url: str
+    backend_cors_origins: list[str] = ["http://localhost:3000"]
+    jwt_secret: str
+    access_token_expire_minutes: int = 60
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
 
-settings = Settings()
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+settings = get_settings()

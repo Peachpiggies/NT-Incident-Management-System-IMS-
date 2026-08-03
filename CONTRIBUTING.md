@@ -1,7 +1,8 @@
 # Contributing
 
-- Follow Conventional Commits (feat:, fix:, docs:, chore:, refactor:, perf:, test:, build:)
-- Create a feature branch from develop: feature/<short-description>
-- Open a PR and assign reviewers
-- CI must pass before merging
-- Use pre-commit hooks to format and lint code
+1. Branch from `develop` using a descriptive name, for example `feature/incident-list`.
+2. Follow the [coding standards](docs/CODING_STANDARDS.md) and Conventional Commits.
+3. Run the relevant quality checks locally.
+4. Open a focused pull request, explain the change and verification, then request review.
+
+CI must pass before merge. Install optional local hooks with `pre-commit install` after installing [pre-commit](https://pre-commit.com/).
