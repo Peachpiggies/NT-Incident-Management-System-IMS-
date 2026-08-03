@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     backend_cors_origins: list[str] = ["http://localhost:3000"]
     jwt_secret: str
     access_token_expire_minutes: int = 60
+    aws_s3_bucket: str = ""
+    aws_region: str = "ap-southeast-1"
+    aws_s3_endpoint_url: str | None = None
+    aws_access_key_id: str | None = None
+    aws_secret_access_key: str | None = None
+    s3_signed_url_expire_seconds: int = 900
 
 
 @lru_cache
