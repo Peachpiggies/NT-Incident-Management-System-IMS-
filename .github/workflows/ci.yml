@@ -9,6 +9,9 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost/test
+      JWT_SECRET: test-secret
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
