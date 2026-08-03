@@ -4,15 +4,20 @@
 
 All endpoints are versioned under `/api/v1`.
 
-### Common response format
+## Common response format
+
+This API follows a standard success/error envelope for frontend consistency.
 
 #### Success
 
 ```json
 {
   "success": true,
-  "data": {},
-  "message": "Ticket created successfully"
+  "data": {
+    "id": 123,
+    "title": "Example"
+  },
+  "message": "Request completed successfully"
 }
 ```
 
@@ -33,92 +38,120 @@ All endpoints are versioned under `/api/v1`.
 ### POST /api/v1/auth/register
 
 - Request: `email`, `full_name`, `password`
-- Response: auth token and user details
+- Response: access token + refresh token
 - Permission: public
 
 ### POST /api/v1/auth/login
 
 - Request: `email`, `password`
-- Response: access token
+- Response: access token + refresh token
 - Permission: public
 
-### GET /api/v1/auth/me
+### POST /api/v1/auth/refresh
 
-- Response: current user profile
-- Permission: authenticated
+- Request: `refresh_token`
+- Response: new access token + refresh token
+- Permission: public
+
+### POST /api/v1/auth/logout
+
+- Request: `refresh_token`
+- Response: `204 No Content`
+- Permission: authenticated via refresh token
 
 ## Users
 
-### GET /api/v1/users
+### GET /api/v1/users/me
 
-- Response: list of users
-- Permission: manager
+- Response: current authenticated user profile
+- Permission: authenticated
 
-### GET /api/v1/users/{user_id}
+### GET /api/v1/roles
 
-- Response: user details
-- Permission: manager or self
+- Response: list of available role names
+- Permission: public
 
-### POST /api/v1/users
+## Permissions
 
-- Create user (manager only)
-- Permission: manager
+### GET /api/v1/permissions
 
-### PATCH /api/v1/users/{user_id}
-
-- Update user data and role
-- Permission: manager or self for profile fields
+- Response: permission matrix by role
+- Permission: public
 
 ## Tickets
 
 ### POST /api/v1/tickets
 
 - Create a ticket
-- Request: `title`, `description`, `category_id`, `priority`, optional attachments
+- Request schema: `title`, `description`, `category_id`, `priority`, `affected_asset_service`
+- Response: created ticket model
 - Permission: customer
 
 ### GET /api/v1/tickets
 
 - List tickets
-- Permission:
-  - Customers see own tickets
-  - Tier 1/Tier 2/manager see all tickets
+- Customer: own tickets only
+- Tier 1 / Tier 2 / Manager: all tickets
+- Permission: authenticated
 
 ### GET /api/v1/tickets/{ticket_id}
 
-- Response: ticket details, status, comments, attachments
-- Permission: owner, assigned support, or manager
+- Response: ticket details
+- Permission:
+  - Customer may read own ticket
+  - Support may read by role and workflow
 
-### PATCH /api/v1/tickets/{ticket_id}
+### GET /api/v1/tickets/{ticket_id}/comments
 
-- Update ticket fields and status transitions
-- Request: fields may include `assignee_id`, `status`, `priority`, `category_id`
-- Permission: Tier 1, Tier 2, manager as defined by role
+- Response: ticket comments
+- Customers see only public comments
+- Support users also see internal notes
+- Permission: authenticated
 
 ### POST /api/v1/tickets/{ticket_id}/comments
 
-- Add a comment
-- Request: `body`, `is_internal`
-- Permission:
-  - Customers may add public comments to own tickets
-  - Support can add public or internal comments
+- Create a public ticket comment
+- Request schema: `body`
+- Permission: customer on own ticket
 
-### POST /api/v1/tickets/{ticket_id}/attachments
+### POST /api/v1/tickets/{ticket_id}/assign
 
-- Upload file attachments
-- Permission: ticket owner, assigned staff, or manager
+- Assign a ticket
+- Request schema: `assignee_id` optional
+- Permission: Tier 1 or Manager
+
+### POST /api/v1/tickets/{ticket_id}/escalate
+
+- Escalate a ticket to Tier 2
+- Permission: Tier 1
+
+### POST /api/v1/tickets/{ticket_id}/receive_escalated
+
+- Accept an escalated ticket into Tier 2 workflow
+- Permission: Tier 2
+
+### POST /api/v1/tickets/{ticket_id}/resolve
+
+- Resolve a ticket
+- Permission: Tier 1 or Tier 2
 
 ### POST /api/v1/tickets/{ticket_id}/close
 
-- Close a ticket
-- Permission: owner, support, manager depending on status
+- Close a resolved ticket
+- Permission: Tier 1, Tier 2, or Manager
 
 ### POST /api/v1/tickets/{ticket_id}/reopen
 
-- Reopen a closed ticket
-- Permission: owner or manager
+- Reopen a resolved or closed ticket
+- Permission: Tier 1, Tier 2, or Manager
 
-## Categories
+### POST /api/v1/tickets/{ticket_id}/internal-note
+
+- Create an internal note visible only to support staff
+- Request schema: `body`
+- Permission: Tier 2
+
+## Categories (planned)
 
 ### GET /api/v1/categories
 
@@ -127,7 +160,7 @@ All endpoints are versioned under `/api/v1`.
 
 ### POST /api/v1/categories
 
-- Create category
+- Create a category
 - Permission: manager
 
 ### PATCH /api/v1/categories/{category_id}
@@ -135,28 +168,26 @@ All endpoints are versioned under `/api/v1`.
 - Update category details
 - Permission: manager
 
-## Dashboard
+## Dashboard and reports (planned)
 
 ### GET /api/v1/dashboard/summary
 
-- Response: counts by status, escalated tickets, SLA breaches
+- Counts by status, escalated tickets, SLA breach measures
 - Permission: manager
 
 ### GET /api/v1/dashboard/queue
 
-- Response: assigned/unassigned ticket queue
+- Assigned/unassigned ticket queue view
 - Permission: Tier 1, Tier 2, manager
-
-## Reports
 
 ### GET /api/v1/reports/tickets
 
-- Response: paginated ticket report
+- Paginated ticket report
 - Permission: manager
 
 ### GET /api/v1/reports/users
 
-- Response: support performance summary
+- Support performance summary
 - Permission: manager
 
 ## Health

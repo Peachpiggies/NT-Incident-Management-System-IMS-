@@ -63,6 +63,7 @@ frontend/
 - PostgreSQL: reliable relational data model for ticketing and auditing
 - Next.js: fast frontend, strong type safety, and routing
 - Docker Compose: integrated local development stack
+- Migration design documented in `docs/migration-design.md`
 
 ## Architecture decisions
 
