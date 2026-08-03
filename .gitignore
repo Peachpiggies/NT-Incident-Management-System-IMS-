@@ -4,7 +4,9 @@ node_modules/
 
 # Next.js
 .next/
+.next-*/
 out/
+*.tsbuildinfo
 
 # Logs
 npm-debug.log*
@@ -14,11 +16,18 @@ pnpm-debug.log*
 # Environment
 .env
 .env.local
+frontend/.env.local
 
 # Python
 .venv/
 __pycache__/
 *.pyc
+.coverage
+.pytest_cache/
+
+# Local database and editor files
+*.sqlite3
+.DS_Store
 
 # VS Code
 .vscode/
