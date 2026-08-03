@@ -1,4 +1,4 @@
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -106,7 +106,7 @@ async def refresh(request: RefreshRequest, db: Annotated[AsyncSession, Depends(g
     db_refresh = await db.execute(
         select(RefreshToken).where(
             RefreshToken.token == request.refresh_token,
-            RefreshToken.revoked == False,
+            not RefreshToken.revoked,
             RefreshToken.expires_at > datetime.now(timezone.utc),
         )
     )

@@ -1,4 +1,5 @@
-from typing import Annotated, Iterable
+from collections.abc import Iterable
+from typing import Annotated
 
 from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import OAuth2PasswordBearer
