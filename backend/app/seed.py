@@ -32,17 +32,17 @@ ROLES = [
 
 PERMISSIONS = [
     ("ticket", "create"), ("ticket", "read_own"), ("ticket", "read_all"),
-    ("ticket", "comment"), ("ticket", "internal_note"), ("ticket", "assign"),
-    ("ticket", "escalate"), ("ticket", "resolve"), ("ticket", "close"),
+    ("ticket", "comment"), ("ticket", "attachment_add"), ("ticket", "internal_note"), ("ticket", "assign"),
+    ("ticket", "escalate"), ("ticket", "receive_escalated"), ("ticket", "resolve"), ("ticket", "close"),
     ("ticket", "reopen"), ("dashboard", "view"), ("report", "view"),
     ("user", "manage"), ("role", "manage"), ("department", "manage"),
     ("configuration", "manage"),
 ]
 
 ROLE_PERMISSION_CODES = {
-    "customer": {"ticket.create", "ticket.read_own", "ticket.comment"},
-    "helpdesk_t1": {"ticket.read_all", "ticket.comment", "ticket.assign", "ticket.escalate", "ticket.resolve", "ticket.close", "ticket.reopen"},
-    "helpdesk_t2": {"ticket.read_all", "ticket.comment", "ticket.internal_note", "ticket.resolve", "ticket.close", "ticket.reopen"},
+    "customer": {"ticket.create", "ticket.read_own", "ticket.comment", "ticket.attachment_add"},
+    "helpdesk_t1": {"ticket.read_all", "ticket.comment", "ticket.attachment_add", "ticket.assign", "ticket.escalate", "ticket.resolve", "ticket.close", "ticket.reopen"},
+    "helpdesk_t2": {"ticket.read_all", "ticket.comment", "ticket.attachment_add", "ticket.internal_note", "ticket.receive_escalated", "ticket.resolve", "ticket.close", "ticket.reopen"},
     "manager": {"ticket.read_all", "ticket.assign", "ticket.resolve", "ticket.close", "ticket.reopen", "dashboard.view", "report.view", "user.manage"},
     "admin": {f"{module}.{action}" for module, action in PERMISSIONS},
 }

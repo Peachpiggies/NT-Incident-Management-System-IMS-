@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.dependencies import get_current_user, require_any_role
+from app.api.v1.dependencies import get_current_user, require_permission
 from app.core.storage import get_download_url, upload_file_object
 from app.db.models import Attachment, Ticket, User
 from app.db.session import get_db
@@ -52,7 +52,7 @@ async def upload_attachment(
     ticket_id: int,
     *,
     file: UploadFile = File(...),
-    current_user: Annotated[User, Depends(require_any_role([Role.TIER1, Role.TIER2, Role.MANAGER, Role.CUSTOMER]))],
+    current_user: Annotated[User, Depends(require_permission("ticket.attachment_add"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Attachment:
     ticket = await db.get(Ticket, ticket_id)

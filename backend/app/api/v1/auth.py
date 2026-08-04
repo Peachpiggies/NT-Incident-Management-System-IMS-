@@ -63,6 +63,13 @@ async def _revoke_all_refresh_tokens(db: AsyncSession, user_id: UUID) -> None:
     await db.execute(update(RefreshToken).where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None)).values(revoked_at=datetime.now(timezone.utc)))
 
 
+def _is_expired(expires_at: datetime) -> bool:
+    # SQLite omits timezone info in test databases; PostgreSQL returns it.
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    return expires_at <= datetime.now(timezone.utc)
+
+
 @router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
 async def register(request: UserRegisterRequest, db: Annotated[AsyncSession, Depends(get_db)]) -> AuthResponse:
     email = request.email.lower()
@@ -106,7 +113,7 @@ async def refresh(request: RefreshRequest, db: Annotated[AsyncSession, Depends(g
         await _revoke_all_refresh_tokens(db, entity.user_id)
         await db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token reuse detected; all sessions were revoked")
-    if entity.expires_at <= datetime.now(timezone.utc):
+    if _is_expired(entity.expires_at):
         entity.revoked_at = datetime.now(timezone.utc)
         await db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")

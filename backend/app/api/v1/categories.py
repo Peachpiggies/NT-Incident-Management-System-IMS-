@@ -5,11 +5,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.dependencies import get_current_user, require_roles
+from app.api.v1.dependencies import get_current_user, require_permission
 from app.db.models import Category
 from app.db.models import User
 from app.db.session import get_db
-from app.domain import Role
 
 router = APIRouter(tags=["Categories"])
 
@@ -49,7 +48,7 @@ async def list_categories(
 @router.post("/categories", response_model=CategoryResponse, status_code=status.HTTP_201_CREATED)
 async def create_category(
     request: CategoryCreateRequest,
-    current_user: Annotated[User, Depends(require_roles(Role.MANAGER))],
+    current_user: Annotated[User, Depends(require_permission("configuration.manage"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Category:
     existing = await db.execute(select(Category).where(Category.name == request.name))
@@ -83,7 +82,7 @@ async def get_category(
 async def update_category(
     category_id: int,
     request: CategoryUpdateRequest,
-    current_user: Annotated[User, Depends(require_roles(Role.MANAGER))],
+    current_user: Annotated[User, Depends(require_permission("configuration.manage"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Category:
     category = await db.get(Category, category_id)
