@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,13 +27,13 @@ class AuthResponse(BaseModel):
 
 
 class UserRegisterRequest(BaseModel):
-    email: EmailStr
+    email: str
     full_name: str = Field(..., min_length=3)
     password: str = Field(..., min_length=8)
 
 
 class UserLoginRequest(BaseModel):
-    email: EmailStr
+    email: str
     password: str = Field(..., min_length=8)
 
 

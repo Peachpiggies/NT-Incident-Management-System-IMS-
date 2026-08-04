@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import jwt
 from fastapi import HTTPException, status
@@ -18,12 +18,12 @@ def verify_password(password: str, hashed: str) -> bool:
 
 
 def create_access_token(subject: int) -> str:
-    expires = datetime.now(UTC) + timedelta(minutes=settings.access_token_expire_minutes)
+    expires = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
     return jwt.encode({"sub": str(subject), "exp": expires}, settings.jwt_secret, algorithm="HS256")
 
 
 def create_refresh_token(subject: int) -> str:
-    expires = datetime.now(UTC) + timedelta(days=settings.refresh_token_expire_days)
+    expires = datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)
     return jwt.encode({"sub": str(subject), "exp": expires}, settings.jwt_secret, algorithm="HS256")
 
 

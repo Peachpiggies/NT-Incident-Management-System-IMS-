@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
     s3_signed_url_expire_seconds: int = 900
+    upload_dir: str = "uploads"
 
 
 @lru_cache
