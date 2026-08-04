@@ -16,6 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import (
     get_current_user,
     require_permission,
+    require_ticket_read,
+    ticket_read_scope,
     user_has_permission,
 )
 from app.db.models import (
@@ -146,14 +148,6 @@ async def _status_by_code(db: AsyncSession, code: str) -> TicketStatus:
     return record
 
 
-async def _assert_can_read(ticket: Ticket, user: User, db: AsyncSession) -> None:
-    if ticket.requester_id == user.id or await user_has_permission(
-        db, user.id, "ticket.read_all"
-    ):
-        return
-    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
-
-
 def _history(
     ticket: Ticket,
     actor_id: UUID,
@@ -234,7 +228,7 @@ async def list_tickets(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[Ticket]:
     statement = select(Ticket).where(Ticket.is_deleted.is_(False))
-    if not await user_has_permission(db, current_user.id, "ticket.read_all"):
+    if await ticket_read_scope(db, current_user.id) == "own":
         statement = statement.where(Ticket.requester_id == current_user.id)
     return list((await db.scalars(statement.order_by(Ticket.created_at.desc()))).all())
 
@@ -272,7 +266,7 @@ async def get_ticket(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Ticket:
     ticket = await _get_ticket_or_404(ticket_id, db)
-    await _assert_can_read(ticket, current_user, db)
+    await require_ticket_read(db, current_user, ticket)
     return ticket
 
 
@@ -283,7 +277,7 @@ async def list_ticket_comments(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[TicketComment]:
     ticket = await _get_ticket_or_404(ticket_id, db)
-    await _assert_can_read(ticket, current_user, db)
+    await require_ticket_read(db, current_user, ticket)
     statement = select(TicketComment).where(
         TicketComment.ticket_id == ticket.id, TicketComment.is_deleted.is_(False)
     )
@@ -306,7 +300,7 @@ async def add_ticket_comment(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> TicketComment:
     ticket = await _get_ticket_or_404(ticket_id, db)
-    await _assert_can_read(ticket, current_user, db)
+    await require_ticket_read(db, current_user, ticket)
     comment = TicketComment(
         ticket_id=ticket.id,
         user_id=current_user.id,
@@ -364,7 +358,7 @@ async def get_ticket_history(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[TicketHistory]:
     ticket = await _get_ticket_or_404(ticket_id, db)
-    await _assert_can_read(ticket, current_user, db)
+    await require_ticket_read(db, current_user, ticket)
     return list(
         (
             await db.scalars(

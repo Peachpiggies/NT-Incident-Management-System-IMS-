@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import (
     get_current_user,
     require_permission,
+    require_ticket_read,
     user_has_permission,
 )
 from app.core.storage import get_download_url, upload_file_object
@@ -41,10 +42,7 @@ async def _ticket(ticket_id: UUID, user: User, db: AsyncSession) -> Ticket:
     ticket = await db.get(Ticket, ticket_id)
     if not ticket or ticket.is_deleted:
         raise HTTPException(404, "Ticket not found")
-    if ticket.requester_id != user.id and not await user_has_permission(
-        db, user.id, "ticket.read_all"
-    ):
-        raise HTTPException(403, "Forbidden")
+    await require_ticket_read(db, user, ticket)
     return ticket
 
 
