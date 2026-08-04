@@ -13,8 +13,29 @@ from app.api.v1.dependencies import (
     ticket_read_scope,
     user_has_permission,
 )
+from app.api.v1.organization import (
+    RoleRequest,
+    assign_user_role,
+    create_role,
+    remove_user_role,
+)
+from app.api.v1.permissions import (
+    PermissionRequest,
+    assign_role_permission,
+    create_permission,
+    remove_role_permission,
+)
+from app.api.v1.users import (
+    UserCreateRequest,
+    UserUpdateRequest,
+    activate_user,
+    create_user,
+    deactivate_user,
+    update_user,
+)
 from app.db.models import (
     Base,
+    Department,
     Permission,
     RefreshToken,
     Role,
@@ -192,6 +213,117 @@ def test_ticket_read_policy_requires_permission_and_ownership(tmp_path) -> None:
                 await require_ticket_read(session, own_reader, ticket)
             with pytest.raises(HTTPException, match="Missing permission"):
                 await require_ticket_read(session, no_reader, ticket)
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_user_management_syncs_multi_roles_and_activation(tmp_path) -> None:
+    async def scenario() -> None:
+        engine, sessions = await _session_factory(tmp_path)
+        async with sessions() as session:
+            department = Department(code="OPS", name="Operations")
+            admin_role = Role(code="admin", name="Admin", is_system=True)
+            tier_one = Role(code="helpdesk_t1", name="Helpdesk T1", is_system=True)
+            tier_two = Role(code="helpdesk_t2", name="Helpdesk T2", is_system=True)
+            manager = User(
+                username="manager",
+                email="manager@example.com",
+                first_name="Manager",
+                last_name="User",
+                password_hash="hash",
+            )
+            session.add_all([department, admin_role, tier_one, tier_two, manager])
+            await session.flush()
+
+            created = await create_user(
+                UserCreateRequest(
+                    username="operator",
+                    email="operator@example.com",
+                    first_name="Operator",
+                    last_name="One",
+                    password="secure-password-123",
+                    department_id=department.id,
+                    role_ids=[tier_one.id, tier_two.id],
+                ),
+                manager,
+                session,
+            )
+            assert created.id
+            assert created.department and created.department.id == department.id
+            assert {role.id for role in created.roles} == {tier_one.id, tier_two.id}
+
+            updated = await update_user(
+                created.id,
+                UserUpdateRequest(role_ids=[tier_one.id]),
+                manager,
+                session,
+            )
+            assert [role.id for role in updated.roles] == [tier_one.id]
+
+            # Re-activating a previously soft-deleted role assignment must not
+            # violate the database's unique (user_id, role_id) constraint.
+            restored = await update_user(
+                created.id,
+                UserUpdateRequest(role_ids=[tier_one.id, tier_two.id]),
+                manager,
+                session,
+            )
+            assert {role.id for role in restored.roles} == {tier_one.id, tier_two.id}
+
+            deactivated = await deactivate_user(created.id, manager, session)
+            assert not deactivated.is_active
+            activated = await activate_user(created.id, manager, session)
+            assert activated.is_active
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_access_control_assignments_can_be_removed_and_restored(tmp_path) -> None:
+    async def scenario() -> None:
+        engine, sessions = await _session_factory(tmp_path)
+        async with sessions() as session:
+            administrator = User(
+                username="access-admin",
+                email="access-admin@example.com",
+                first_name="Access",
+                last_name="Admin",
+                password_hash="hash",
+            )
+            operator = User(
+                username="access-operator",
+                email="access-operator@example.com",
+                first_name="Access",
+                last_name="Operator",
+                password_hash="hash",
+            )
+            session.add_all([administrator, operator])
+            await session.flush()
+            role = await create_role(
+                RoleRequest(code="asset_operator", name="Asset operator"),
+                administrator,
+                session,
+            )
+            permission = await create_permission(
+                PermissionRequest(module="asset", action="view", code="asset.view"),
+                administrator,
+                session,
+            )
+
+            await assign_role_permission(role.id, permission.id, administrator, session)
+            await remove_role_permission(role.id, permission.id, administrator, session)
+            restored_permission = await assign_role_permission(
+                role.id, permission.id, administrator, session
+            )
+            assert restored_permission.permission.id == permission.id
+
+            await assign_user_role(operator.id, role.id, administrator, session)
+            await remove_user_role(operator.id, role.id, administrator, session)
+            restored_role = await assign_user_role(
+                operator.id, role.id, administrator, session
+            )
+            assert restored_role.role.id == role.id
         await engine.dispose()
 
     asyncio.run(scenario())
