@@ -2,17 +2,15 @@
 
 ## Core Entities
 
-- User
-- Role
-- Department
-- Ticket
-- Category
-- Priority
-- Status
-- Comment
-- Attachment
-- Notification
-- Audit Log
+The Phase 1.5 design captures the following primary entities:
+
+- `User`
+- `Category`
+- `Ticket`
+- `TicketComment`
+- `Attachment`
+- `Notification`
+- `AuditEvent`
 
 ## Current implementation entities
 
@@ -26,20 +24,100 @@ The repository currently includes these database models:
 - `notifications`
 - `audit_events`
 
-## Proposed entity relationships
+## Entity relationship diagram
 
-```text
-User "1" --- "*" Ticket          (customer_id)
-User "1" --- "*" Ticket          (assignee_id)
-User "1" --- "*" TicketComment   (author_id)
-User "1" --- "*" Attachment      (uploader_id)
-User "1" --- "*" Notification    (user_id)
-User "1" --- "*" AuditEvent      (actor_id)
-Category "1" --- "*" Ticket       (category_id)
-Ticket "1" --- "*" TicketComment  (ticket_id)
-Ticket "1" --- "*" Attachment     (ticket_id)
-Ticket "1" --- "*" Notification   (ticket_id)
-Ticket "1" --- "*" AuditEvent     (ticket_id)
+```mermaid
+erDiagram
+    USERS {
+        int id PK
+        string email
+        string full_name
+        string password_hash
+        string role
+        bool is_active
+        datetime created_at
+        datetime updated_at
+    }
+
+    CATEGORIES {
+        int id PK
+        string name
+        text description
+        bool is_active
+        datetime created_at
+        datetime updated_at
+    }
+
+    TICKETS {
+        int id PK
+        string title
+        text description
+        string priority
+        string status
+        string affected_asset_service
+        int customer_id FK
+        int category_id FK
+        int assignee_id FK
+        datetime escalated_at
+        datetime resolved_at
+        datetime created_at
+        datetime updated_at
+    }
+
+    TICKET_COMMENTS {
+        int id PK
+        int ticket_id FK
+        int author_id FK
+        text body
+        bool is_internal
+        datetime created_at
+        datetime updated_at
+    }
+
+    ATTACHMENTS {
+        int id PK
+        int ticket_id FK
+        int uploader_id FK
+        string file_name
+        string content_type
+        int size_bytes
+        string object_key
+        bool is_internal
+        datetime created_at
+        datetime updated_at
+    }
+
+    NOTIFICATIONS {
+        int id PK
+        int user_id FK
+        int ticket_id FK
+        string message
+        datetime read_at
+        datetime created_at
+        datetime updated_at
+    }
+
+    AUDIT_EVENTS {
+        int id PK
+        int ticket_id FK
+        int actor_id FK
+        string action
+        text detail
+        datetime created_at
+        datetime updated_at
+    }
+
+    USERS ||--o{ TICKETS : "creates"
+    USERS ||--o{ TICKETS : "assigned_to"
+    USERS ||--o{ TICKET_COMMENTS : "authors"
+    USERS ||--o{ ATTACHMENTS : "uploads"
+    USERS ||--o{ NOTIFICATIONS : "receives"
+    USERS ||--o{ AUDIT_EVENTS : "acts"
+    CATEGORIES ||--o{ TICKETS : "categorizes"
+    TICKETS ||--o{ TICKET_COMMENTS : "has"
+    TICKETS ||--o{ ATTACHMENTS : "has"
+    TICKETS ||--o{ NOTIFICATIONS : "has"
+    TICKETS ||--o{ AUDIT_EVENTS : "has"
 ```
 
 ## Entity descriptions

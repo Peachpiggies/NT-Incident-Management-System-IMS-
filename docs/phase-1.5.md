@@ -25,6 +25,7 @@ When Phase 1.5 is complete, the team will have:
 - `docs/er-diagram.md`
 - `docs/permissions.md`
 - `docs/ticket-lifecycle.md`
+- `docs/migration-design.md`
 - `docs/CODING_STANDARDS.md`
 - `docs/deployment.md`
 - `docs/decision-log.md`
@@ -39,4 +40,13 @@ This repository already has an initial production-oriented foundation:
 - Orchestration: Docker Compose
 - Health checks: `/api/v1/healthz` and `/api/v1/readyz`
 
-Phase 1.5 documentation is intentionally designed to reflect the existing codebase while establishing a stronger architecture and design process for future development.
+Phase 1.5 documentation now includes:
+
+- architecture decisions and system layering
+- an API contract for implemented and planned endpoints
+- an ER diagram for the current domain model
+- a ticket lifecycle state machine aligned to backend state transitions
+- a permissions matrix tied to role-based actions
+- coding standards, deployment guidance, decision logs, and risk register items
+
+Phase 1.5 is now complete for the architecture and documentation deliverables needed to guide Phase 2 implementation.

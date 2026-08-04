@@ -22,6 +22,11 @@ def create_access_token(subject: int) -> str:
     return jwt.encode({"sub": str(subject), "exp": expires}, settings.jwt_secret, algorithm="HS256")
 
 
+def create_refresh_token(subject: int) -> str:
+    expires = datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)
+    return jwt.encode({"sub": str(subject), "exp": expires}, settings.jwt_secret, algorithm="HS256")
+
+
 def decode_access_token(token: str) -> int:
     try:
         return int(jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])["sub"])
@@ -47,6 +52,7 @@ def decode_refresh_token(token: str) -> int:
     """
     Decode a refresh token and return the subject as int. Raises HTTPException on failure.
     """
+def decode_refresh_token(token: str) -> int:
     try:
         return int(jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])["sub"])
     except (jwt.InvalidTokenError, KeyError, ValueError) as error:

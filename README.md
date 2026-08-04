@@ -48,12 +48,16 @@ For local backend execution, set `DATABASE_URL` in `backend/.env` to a reachable
 
 ## Database migrations
 
+Database migrations are managed by Alembic from the `backend/` folder. See `docs/migration-design.md` for the migration strategy, required environment variables, and maintenance notes.
+
 Create a revision after adding or changing ORM models, then apply it to the local database:
 
 ```bash
 cd backend
-alembic revision --autogenerate -m "describe_change"
-alembic upgrade head
+DATABASE_URL=postgresql+asyncpg://ims:change-me-for-local-development@db:5432/ims \
+JWT_SECRET=secret \
+/home/peach/.venv/bin/python -m alembic -c alembic.ini revision --autogenerate -m "describe_change"
+/home/peach/.venv/bin/python -m alembic -c alembic.ini upgrade head
 ```
 
 ## Environment configuration
