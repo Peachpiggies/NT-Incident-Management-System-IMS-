@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.dependencies import get_current_user, require_any_role, require_roles
+from app.api.v1.dependencies import get_current_user, require_permission
 from app.db.models import AuditEvent, Category, Notification, Ticket, TicketComment, User
 from app.db.session import get_db
 from app.domain import ALLOWED_TRANSITIONS, Priority, Role, TicketStatus
@@ -116,7 +116,7 @@ async def _get_ticket_or_404(ticket_id: int, db: AsyncSession) -> Ticket:
 @router.post("/tickets", response_model=TicketResponse, status_code=status.HTTP_201_CREATED)
 async def create_ticket(
     payload: TicketCreate,
-    current_user: Annotated[User, Depends(require_roles(Role.CUSTOMER))],
+    current_user: Annotated[User, Depends(require_permission("ticket.create"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> TicketResponse:
     category = await db.get(Category, payload.category_id)
@@ -154,7 +154,7 @@ async def list_tickets(
 
 @router.get("/tickets/dashboard", response_model=TicketDashboardResponse)
 async def ticket_dashboard(
-    current_user: Annotated[User, Depends(require_roles(Role.MANAGER))],
+    current_user: Annotated[User, Depends(require_permission("dashboard.view"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> TicketDashboardResponse:
     total = await db.execute(select(func.count()).select_from(Ticket))
@@ -214,7 +214,7 @@ async def list_ticket_comments(
 async def add_ticket_comment(
     ticket_id: int,
     payload: TicketCommentRequest,
-    current_user: Annotated[User, Depends(require_roles(Role.CUSTOMER))],
+    current_user: Annotated[User, Depends(require_permission("ticket.comment"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> TicketComment:
     ticket = await _get_ticket_or_404(ticket_id, db)
@@ -252,7 +252,7 @@ async def get_ticket_history(
 async def assign_ticket(
     ticket_id: int,
     payload: TicketAssigneeRequest,
-    current_user: Annotated[User, Depends(require_any_role([Role.TIER1, Role.MANAGER]))],
+    current_user: Annotated[User, Depends(require_permission("ticket.assign"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Ticket:
     ticket = await _get_ticket_or_404(ticket_id, db)
@@ -272,7 +272,7 @@ async def assign_ticket(
 @router.post("/tickets/{ticket_id}/escalate", response_model=TicketResponse)
 async def escalate_ticket(
     ticket_id: int,
-    current_user: Annotated[User, Depends(require_roles(Role.TIER1))],
+    current_user: Annotated[User, Depends(require_permission("ticket.escalate"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Ticket:
     ticket = await _get_ticket_or_404(ticket_id, db)
@@ -292,7 +292,7 @@ async def escalate_ticket(
 @router.post("/tickets/{ticket_id}/receive_escalated", response_model=TicketResponse)
 async def receive_escalated_ticket(
     ticket_id: int,
-    current_user: Annotated[User, Depends(require_roles(Role.TIER2))],
+    current_user: Annotated[User, Depends(require_permission("ticket.receive_escalated"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Ticket:
     ticket = await _get_ticket_or_404(ticket_id, db)
@@ -312,7 +312,7 @@ async def receive_escalated_ticket(
 @router.post("/tickets/{ticket_id}/resolve", response_model=TicketResponse)
 async def resolve_ticket(
     ticket_id: int,
-    current_user: Annotated[User, Depends(require_any_role([Role.TIER1, Role.TIER2]))],
+    current_user: Annotated[User, Depends(require_permission("ticket.resolve"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Ticket:
     ticket = await _get_ticket_or_404(ticket_id, db)
@@ -332,7 +332,7 @@ async def resolve_ticket(
 @router.post("/tickets/{ticket_id}/close", response_model=TicketResponse)
 async def close_ticket(
     ticket_id: int,
-    current_user: Annotated[User, Depends(require_any_role([Role.TIER1, Role.TIER2, Role.MANAGER]))],
+    current_user: Annotated[User, Depends(require_permission("ticket.close"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Ticket:
     ticket = await _get_ticket_or_404(ticket_id, db)
@@ -351,7 +351,7 @@ async def close_ticket(
 @router.post("/tickets/{ticket_id}/reopen", response_model=TicketResponse)
 async def reopen_ticket(
     ticket_id: int,
-    current_user: Annotated[User, Depends(require_any_role([Role.TIER1, Role.TIER2, Role.MANAGER]))],
+    current_user: Annotated[User, Depends(require_permission("ticket.reopen"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Ticket:
     ticket = await _get_ticket_or_404(ticket_id, db)
@@ -378,7 +378,7 @@ async def reopen_ticket(
 async def add_internal_note(
     ticket_id: int,
     payload: TicketCommentRequest,
-    current_user: Annotated[User, Depends(require_roles(Role.TIER2))],
+    current_user: Annotated[User, Depends(require_permission("ticket.internal_note"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, str]:
     ticket = await _get_ticket_or_404(ticket_id, db)

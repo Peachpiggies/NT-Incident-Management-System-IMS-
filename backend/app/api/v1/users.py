@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.dependencies import get_current_user, require_roles
+from app.api.v1.dependencies import get_current_user, require_permission
 from app.core.security import hash_password
 from app.db.models import User
 from app.db.session import get_db
@@ -61,7 +61,7 @@ async def list_roles() -> list[str]:
 
 @router.get("/users", response_model=list[UserResponse])
 async def list_users(
-    current_user: Annotated[User, Depends(require_roles(Role.MANAGER))],
+    current_user: Annotated[User, Depends(require_permission("user.manage"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[User]:
     result = await db.execute(select(User).order_by(User.created_at.desc()))
@@ -71,7 +71,7 @@ async def list_users(
 @router.post("/users", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(
     request: UserCreateRequest,
-    current_user: Annotated[User, Depends(require_roles(Role.MANAGER))],
+    current_user: Annotated[User, Depends(require_permission("user.manage"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
     existing_user = await get_user_by_email(db, request.email)
@@ -93,7 +93,7 @@ async def create_user(
 @router.get("/users/{user_id}", response_model=UserResponse)
 async def get_user(
     user_id: int,
-    current_user: Annotated[User, Depends(require_roles(Role.MANAGER))],
+    current_user: Annotated[User, Depends(require_permission("user.manage"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
     user = await get_user_by_id(db, user_id)
@@ -106,7 +106,7 @@ async def get_user(
 async def update_user(
     user_id: int,
     request: UserUpdateRequest,
-    current_user: Annotated[User, Depends(require_roles(Role.MANAGER))],
+    current_user: Annotated[User, Depends(require_permission("user.manage"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
     user = await get_user_by_id(db, user_id)

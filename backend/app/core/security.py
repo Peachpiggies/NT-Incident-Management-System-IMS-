@@ -53,26 +53,6 @@ def create_refresh_token(subject: UUID) -> RefreshTokenPayload:
     jti = str(uuid4())
     return RefreshTokenPayload(_create_token(subject, "refresh", expires_at, jti), jti, expires_at)
 
-# --- Refresh token helpers ---
-DEFAULT_REFRESH_DAYS = 7
-
-
-def create_refresh_token(subject: int, days: int | None = None) -> str:
-    """
-    Create a refresh token for `subject`. Uses settings.jwt_secret and a longer expiry.
-    If `days` is provided it overrides the default expiry days.
-    """
-    expire_days = days if days is not None else DEFAULT_REFRESH_DAYS
-    expires = datetime.now(timezone.utc) + timedelta(days=expire_days)
-    return jwt.encode({"sub": str(subject), "exp": expires}, settings.jwt_secret, algorithm="HS256")
-
-
-def decode_refresh_token(token: str) -> int:
-    """
-    Decode a refresh token and return the subject as int. Raises HTTPException on failure.
-    """
-def decode_refresh_token(token: str) -> int:
-
 def _decode_token(token: str, expected_type: str) -> dict[str, str]:
     try:
         payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
