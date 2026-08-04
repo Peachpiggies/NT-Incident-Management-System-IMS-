@@ -22,7 +22,12 @@ def upload_file_object(object_key: str, contents: bytes, content_type: str) -> s
             aws_secret_access_key=settings.aws_secret_access_key,
         )
         try:
-            client.put_object(Bucket=settings.aws_s3_bucket, Key=object_key, Body=contents, ContentType=content_type)
+            client.put_object(
+                Bucket=settings.aws_s3_bucket,
+                Key=object_key,
+                Body=contents,
+                ContentType=content_type,
+            )
         except (ClientError, BotoCoreError) as exc:
             raise RuntimeError("Failed to upload file to S3") from exc
         return object_key

@@ -32,26 +32,43 @@ def verify_password(password: str, hashed: str) -> bool:
 
 def hash_refresh_token(token: str) -> str:
     """Produce a keyed digest so a database leak does not expose sessions."""
-    return hmac.new(settings.jwt_secret.encode(), token.encode(), hashlib.sha256).hexdigest()
+    return hmac.new(
+        settings.jwt_secret.encode(), token.encode(), hashlib.sha256
+    ).hexdigest()
 
 
-def _create_token(subject: UUID, token_type: str, expires_at: datetime, jti: str) -> str:
+def _create_token(
+    subject: UUID, token_type: str, expires_at: datetime, jti: str
+) -> str:
     return jwt.encode(
-        {"sub": str(subject), "typ": token_type, "jti": jti, "iat": datetime.now(timezone.utc), "exp": expires_at},
+        {
+            "sub": str(subject),
+            "typ": token_type,
+            "jti": jti,
+            "iat": datetime.now(timezone.utc),
+            "exp": expires_at,
+        },
         settings.jwt_secret,
         algorithm="HS256",
     )
 
 
 def create_access_token(subject: UUID) -> str:
-    expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
+    expires_at = datetime.now(timezone.utc) + timedelta(
+        minutes=settings.access_token_expire_minutes
+    )
     return _create_token(subject, "access", expires_at, str(uuid4()))
 
 
 def create_refresh_token(subject: UUID) -> RefreshTokenPayload:
-    expires_at = datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)
+    expires_at = datetime.now(timezone.utc) + timedelta(
+        days=settings.refresh_token_expire_days
+    )
     jti = str(uuid4())
-    return RefreshTokenPayload(_create_token(subject, "refresh", expires_at, jti), jti, expires_at)
+    return RefreshTokenPayload(
+        _create_token(subject, "refresh", expires_at, jti), jti, expires_at
+    )
+
 
 def _decode_token(token: str, expected_type: str) -> dict[str, str]:
     try:
@@ -61,7 +78,10 @@ def _decode_token(token: str, expected_type: str) -> dict[str, str]:
         UUID(payload["sub"])
         return payload
     except (jwt.InvalidTokenError, KeyError, ValueError, TypeError) as error:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid or expired {expected_type} token") from error
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid or expired {expected_type} token",
+        ) from error
 
 
 def decode_access_token(token: str) -> UUID:

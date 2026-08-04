@@ -1,125 +1,190 @@
+from datetime import datetime, timezone
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_current_user, require_permission
 from app.core.security import hash_password
-from app.db.models import User
+from app.db.models import Role, User, UserRole
 from app.db.session import get_db
-from app.domain import Role
 
 router = APIRouter(tags=["Users"])
 
 
 class UserResponse(BaseModel):
-    id: int
+    id: UUID
+    username: str
     email: str
-    full_name: str
-    role: str
+    first_name: str
+    last_name: str
+    department_id: UUID | None
     is_active: bool
-
-    model_config = ConfigDict(
-        from_attributes=True
-    )
+    role_codes: list[str] = Field(default_factory=list)
 
 
 class UserCreateRequest(BaseModel):
+    username: str = Field(..., min_length=3, max_length=100)
     email: str
-    full_name: str = Field(..., min_length=3)
-    password: str = Field(..., min_length=8)
-    role: Role = Role.CUSTOMER
+    first_name: str
+    last_name: str
+    password: str = Field(..., min_length=12)
+    department_id: UUID | None = None
+    role_codes: list[str] = Field(default_factory=lambda: ["customer"])
 
 
 class UserUpdateRequest(BaseModel):
-    full_name: str | None = Field(None, min_length=3)
-    role: Role | None = None
+    username: str | None = Field(default=None, min_length=3, max_length=100)
+    email: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+    password: str | None = Field(default=None, min_length=12)
+    department_id: UUID | None = None
     is_active: bool | None = None
+    role_codes: list[str] | None = None
 
 
-async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
-    result = await db.execute(select(User).where(User.email == email))
-    return result.scalar_one_or_none()
+async def _response(db: AsyncSession, user: User) -> UserResponse:
+    codes = (
+        await db.scalars(
+            select(Role.code)
+            .join(UserRole, UserRole.role_id == Role.id)
+            .where(UserRole.user_id == user.id, UserRole.is_deleted.is_(False))
+        )
+    ).all()
+    return UserResponse(
+        id=user.id,
+        username=user.username,
+        email=user.email,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        department_id=user.department_id,
+        is_active=user.is_active,
+        role_codes=codes,
+    )
 
 
-async def get_user_by_id(db: AsyncSession, user_id: int) -> User | None:
-    result = await db.execute(select(User).where(User.id == user_id))
-    return result.scalar_one_or_none()
+async def _assign_roles(db: AsyncSession, user: User, codes: list[str]) -> None:
+    roles = (
+        await db.scalars(
+            select(Role).where(Role.code.in_(codes), Role.is_deleted.is_(False))
+        )
+    ).all()
+    if len(roles) != len(set(codes)):
+        raise HTTPException(status_code=400, detail="Unknown role code")
+    for role in roles:
+        db.add(UserRole(user_id=user.id, role_id=role.id))
+
+
+async def _replace_roles(
+    db: AsyncSession, user: User, codes: list[str], actor_id: UUID
+) -> None:
+    """Soft-delete previous assignments so the audit trail remains intact."""
+    existing = (
+        await db.scalars(
+            select(UserRole).where(
+                UserRole.user_id == user.id, UserRole.is_deleted.is_(False)
+            )
+        )
+    ).all()
+    for assignment in existing:
+        assignment.is_deleted = True
+        assignment.deleted_at = datetime.now(timezone.utc)
+        assignment.deleted_by = actor_id
+        assignment.updated_by = actor_id
+    await _assign_roles(db, user, codes)
 
 
 @router.get("/users/me", response_model=UserResponse)
-async def me(current_user: Annotated[User, Depends(get_current_user)]) -> UserResponse:
-    return current_user
+async def me(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> UserResponse:
+    return await _response(db, current_user)
 
 
 @router.get("/roles")
-async def list_roles() -> list[str]:
-    return [role.value for role in User.__table__.c.role.type.enum_class]
+async def list_roles(db: Annotated[AsyncSession, Depends(get_db)]) -> list[str]:
+    return (
+        await db.scalars(
+            select(Role.code).where(Role.is_deleted.is_(False)).order_by(Role.code)
+        )
+    ).all()
 
 
 @router.get("/users", response_model=list[UserResponse])
 async def list_users(
     current_user: Annotated[User, Depends(require_permission("user.manage"))],
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> list[User]:
-    result = await db.execute(select(User).order_by(User.created_at.desc()))
-    return result.scalars().all()
+) -> list[UserResponse]:
+    return [
+        await _response(db, user)
+        for user in (
+            await db.scalars(select(User).where(User.is_deleted.is_(False)))
+        ).all()
+    ]
 
 
 @router.post("/users", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(
-    request: UserCreateRequest,
+    payload: UserCreateRequest,
     current_user: Annotated[User, Depends(require_permission("user.manage"))],
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> User:
-    existing_user = await get_user_by_email(db, request.email)
-    if existing_user:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
-
+) -> UserResponse:
+    if await db.scalar(
+        select(User).where(
+            (User.email == payload.email.lower()) | (User.username == payload.username)
+        )
+    ):
+        raise HTTPException(status_code=409, detail="Email or username already exists")
+    data = payload.model_dump(exclude={"password", "role_codes"})
     user = User(
-        email=request.email,
-        full_name=request.full_name,
-        password_hash=hash_password(request.password),
-        role=request.role,
+        **data,
+        email=payload.email.lower(),
+        password_hash=hash_password(payload.password),
+        created_by=current_user.id,
     )
     db.add(user)
+    await db.flush()
+    await _assign_roles(db, user, payload.role_codes)
     await db.commit()
-    await db.refresh(user)
-    return user
-
-
-@router.get("/users/{user_id}", response_model=UserResponse)
-async def get_user(
-    user_id: int,
-    current_user: Annotated[User, Depends(require_permission("user.manage"))],
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> User:
-    user = await get_user_by_id(db, user_id)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    return user
+    return await _response(db, user)
 
 
 @router.put("/users/{user_id}", response_model=UserResponse)
 async def update_user(
-    user_id: int,
-    request: UserUpdateRequest,
+    user_id: UUID,
+    payload: UserUpdateRequest,
     current_user: Annotated[User, Depends(require_permission("user.manage"))],
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> User:
-    user = await get_user_by_id(db, user_id)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-
-    if request.full_name is not None:
-        user.full_name = request.full_name
-    if request.role is not None:
-        user.role = request.role
-    if request.is_active is not None:
-        user.is_active = request.is_active
-
+) -> UserResponse:
+    user = await db.get(User, user_id)
+    if not user or user.is_deleted:
+        raise HTTPException(status_code=404, detail="User not found")
+    updates = payload.model_dump(exclude_unset=True, exclude={"password", "role_codes"})
+    if "email" in updates and updates["email"] is not None:
+        email = updates["email"].lower()
+        duplicate = await db.scalar(
+            select(User).where(User.email == email, User.id != user.id)
+        )
+        if duplicate:
+            raise HTTPException(status_code=409, detail="Email already exists")
+        updates["email"] = email
+    if "username" in updates and updates["username"] is not None:
+        duplicate = await db.scalar(
+            select(User).where(User.username == updates["username"], User.id != user.id)
+        )
+        if duplicate:
+            raise HTTPException(status_code=409, detail="Username already exists")
+    for key, value in updates.items():
+        setattr(user, key, value)
+    if payload.password is not None:
+        user.password_hash = hash_password(payload.password)
+    if payload.role_codes is not None:
+        await _replace_roles(db, user, payload.role_codes, current_user.id)
+    user.updated_by = current_user.id
     await db.commit()
-    await db.refresh(user)
-    return user
+    return await _response(db, user)

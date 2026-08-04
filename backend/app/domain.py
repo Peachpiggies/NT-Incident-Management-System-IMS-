@@ -11,7 +11,7 @@ except ImportError:
 
     class StrEnum(str, Enum):
         pass
-    
+
 
 class Role(StrEnum):
     CUSTOMER = "customer"

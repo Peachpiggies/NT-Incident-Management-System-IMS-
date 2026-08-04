@@ -1,38 +1,39 @@
-from fastapi import APIRouter
+from typing import Annotated
+from uuid import UUID
 
-from app.domain import Role
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.v1.dependencies import get_current_user
+from app.db.models import Permission, User
+from app.db.session import get_db
 
 router = APIRouter(tags=["Permissions"])
 
-PERMISSIONS = {
-    Role.CUSTOMER.value: [
-        "ticket:create",
-        "ticket:read_own",
-        "ticket:comment_own",
-    ],
-    Role.TIER1.value: [
-        "ticket:view_queue",
-        "ticket:assign",
-        "ticket:resolve",
-        "ticket:escalate",
-    ],
-    Role.TIER2.value: [
-        "ticket:receive_escalated",
-        "ticket:resolve",
-        "ticket:internal_note",
-        "ticket:close",
-        "ticket:reopen",
-    ],
-    Role.MANAGER.value: [
-        "dashboard:view",
-        "report:view",
-        "user:manage",
-        "role:manage",
-        "ticket:view_all",
-    ],
-}
+
+class PermissionResponse(BaseModel):
+    id: UUID
+    module: str
+    action: str
+    code: str
+    description: str | None
+
+    model_config = ConfigDict(from_attributes=True)
 
 
-@router.get("/permissions")
-async def list_permissions() -> dict[str, list[str]]:
-    return PERMISSIONS
+@router.get("/permissions", response_model=list[PermissionResponse])
+async def list_permissions(
+    _current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[Permission]:
+    return list(
+        (
+            await db.scalars(
+                select(Permission)
+                .where(Permission.is_deleted.is_(False))
+                .order_by(Permission.module, Permission.action)
+            )
+        ).all()
+    )

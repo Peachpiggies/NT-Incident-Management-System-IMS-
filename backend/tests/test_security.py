@@ -28,4 +28,6 @@ def test_refresh_token_hash_is_not_the_raw_token() -> None:
     refresh_token = create_refresh_token(uuid4())
 
     assert hash_refresh_token(refresh_token.token) != refresh_token.token
-    assert hash_refresh_token(refresh_token.token) == hash_refresh_token(refresh_token.token)
+    assert hash_refresh_token(refresh_token.token) == hash_refresh_token(
+        refresh_token.token
+    )
