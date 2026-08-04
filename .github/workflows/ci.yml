@@ -40,7 +40,8 @@ jobs:
           alembic -c alembic.ini upgrade head
       - run: python -m ruff check backend/app backend/tests
       - run: python -m compileall -q backend/app
-      - run: pytest backend/tests
+      - run: pytest tests
+        working-directory: backend
 
   frontend:
     runs-on: ubuntu-latest

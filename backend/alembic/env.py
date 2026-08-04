@@ -1,5 +1,14 @@
 import asyncio
+import sys
 from logging.config import fileConfig
+from pathlib import Path
+
+# ``alembic`` is installed as a console script, whose directory can become the
+# first import location in CI.  Resolve the backend directory from this file so
+# migration imports do not depend on the caller's working directory.
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
 
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
