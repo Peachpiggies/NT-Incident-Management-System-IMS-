@@ -42,7 +42,7 @@ async def list_categories(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[Category]:
-    result = await db.execute(select(Category).where(Category.is_active == True).order_by(Category.name.asc()))
+    result = await db.execute(select(Category).where(Category.is_active.is_(True)).order_by(Category.name.asc()))
     return result.scalars().all()
 
 

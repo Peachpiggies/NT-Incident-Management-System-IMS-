@@ -164,7 +164,7 @@ async def ticket_dashboard(
     escalated_count = await db.execute(select(func.count()).select_from(Ticket).where(Ticket.status == TicketStatus.ESCALATED))
     resolved_count = await db.execute(select(func.count()).select_from(Ticket).where(Ticket.status == TicketStatus.RESOLVED))
     closed_count = await db.execute(select(func.count()).select_from(Ticket).where(Ticket.status == TicketStatus.CLOSED))
-    unassigned_count = await db.execute(select(func.count()).select_from(Ticket).where(Ticket.assignee_id == None))
+    unassigned_count = await db.execute(select(func.count()).select_from(Ticket).where(Ticket.assignee_id.is_(None)))
 
     return TicketDashboardResponse(
         total=total.scalar_one(),
@@ -204,7 +204,7 @@ async def list_ticket_comments(
 
     query = select(TicketComment).where(TicketComment.ticket_id == ticket_id)
     if current_user.role == Role.CUSTOMER:
-        query = query.where(TicketComment.is_internal == False)
+        query = query.where(TicketComment.is_internal.is_(False))
 
     result = await db.execute(query.order_by(TicketComment.created_at.asc()))
     return result.scalars().all()
