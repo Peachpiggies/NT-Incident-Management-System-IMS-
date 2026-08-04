@@ -1,94 +1,267 @@
-from datetime import datetime
+"""Production-grade, UUID-based persistence model for NT-IMS.
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, func
-from sqlalchemy.orm import Mapped, mapped_column
+The domain uses configurable master data and explicit join tables.  Do not
+replace these records with Python enums: administrators must be able to adapt
+the business workflow without a deployment.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Optional
+from uuid import UUID, uuid4
+
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.types import Uuid
 
 from app.db.session import Base
-from app.domain import Priority, Role, TicketStatus
 
 
-class Timestamped(Base):
+class BaseModel(Base):
+    """Common identity, audit, soft-delete and optimistic-lock fields."""
+
     __abstract__ = True
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_by: Mapped[Optional[UUID]] = mapped_column(Uuid, ForeignKey("users.id"), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    updated_by: Mapped[Optional[UUID]] = mapped_column(Uuid, ForeignKey("users.id"), nullable=True)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_by: Mapped[Optional[UUID]] = mapped_column(Uuid, ForeignKey("users.id"), nullable=True)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
 
-class User(Timestamped):
+class Department(BaseModel):
+    __tablename__ = "departments"
+    __table_args__ = (UniqueConstraint("code", name="uq_departments_code"),)
+
+    code: Mapped[str] = mapped_column(String(50), nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    parent_department_id: Mapped[Optional[UUID]] = mapped_column(Uuid, ForeignKey("departments.id"))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    parent: Mapped[Optional["Department"]] = relationship(remote_side="Department.id", back_populates="children")
+    children: Mapped[list["Department"]] = relationship(back_populates="parent")
+    users: Mapped[list["User"]] = relationship(back_populates="department", foreign_keys="User.department_id")
+
+
+class Role(BaseModel):
+    __tablename__ = "roles"
+    __table_args__ = (UniqueConstraint("code", name="uq_roles_code"),)
+
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    code: Mapped[str] = mapped_column(String(100), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    is_system: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    user_roles: Mapped[list["UserRole"]] = relationship(back_populates="role")
+    role_permissions: Mapped[list["RolePermission"]] = relationship(back_populates="role")
+
+
+class Permission(BaseModel):
+    __tablename__ = "permissions"
+    __table_args__ = (UniqueConstraint("code", name="uq_permissions_code"),)
+
+    module: Mapped[str] = mapped_column(String(100), nullable=False)
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    code: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    role_permissions: Mapped[list["RolePermission"]] = relationship(back_populates="permission")
+
+
+class User(BaseModel):
     __tablename__ = "users"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
-    full_name: Mapped[str] = mapped_column(String(160))
-    password_hash: Mapped[str] = mapped_column(String(255))
-    role: Mapped[Role] = mapped_column(Enum(Role, name="role"), default=Role.CUSTOMER)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    __table_args__ = (UniqueConstraint("username", name="uq_users_username"), UniqueConstraint("email", name="uq_users_email"))
+
+    username: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    employee_code: Mapped[Optional[str]] = mapped_column(String(100), unique=True)
+    first_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    last_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    phone: Mapped[Optional[str]] = mapped_column(String(30))
+    department_id: Mapped[Optional[UUID]] = mapped_column(Uuid, ForeignKey("departments.id"), index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    last_login: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    department: Mapped[Optional[Department]] = relationship(back_populates="users", foreign_keys=[department_id])
+    user_roles: Mapped[list["UserRole"]] = relationship(back_populates="user", foreign_keys="UserRole.user_id")
+    refresh_tokens: Mapped[list["RefreshToken"]] = relationship(back_populates="user", foreign_keys="RefreshToken.user_id")
 
 
-class Category(Timestamped):
-    __tablename__ = "categories"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(100), unique=True)
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+class UserRole(BaseModel):
+    __tablename__ = "user_roles"
+    __table_args__ = (UniqueConstraint("user_id", "role_id", name="uq_user_roles_user_role"),)
+    user_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False, index=True)
+    role_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("roles.id"), nullable=False, index=True)
+    user: Mapped[User] = relationship(back_populates="user_roles", foreign_keys=[user_id])
+    role: Mapped[Role] = relationship(back_populates="user_roles")
 
 
-class Ticket(Timestamped):
+class RolePermission(BaseModel):
+    __tablename__ = "role_permissions"
+    __table_args__ = (UniqueConstraint("role_id", "permission_id", name="uq_role_permissions_role_permission"),)
+    role_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("roles.id"), nullable=False, index=True)
+    permission_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("permissions.id"), nullable=False, index=True)
+    role: Mapped[Role] = relationship(back_populates="role_permissions")
+    permission: Mapped[Permission] = relationship(back_populates="role_permissions")
+
+
+class TicketCategory(BaseModel):
+    __tablename__ = "ticket_categories"
+    __table_args__ = (UniqueConstraint("code", name="uq_ticket_categories_code"),)
+    code: Mapped[str] = mapped_column(String(50), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    color: Mapped[Optional[str]] = mapped_column(String(20))
+    icon: Mapped[Optional[str]] = mapped_column(String(100))
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    tickets: Mapped[list["Ticket"]] = relationship(back_populates="category")
+
+
+class TicketPriority(BaseModel):
+    __tablename__ = "ticket_priorities"
+    __table_args__ = (UniqueConstraint("code", name="uq_ticket_priorities_code"),)
+    code: Mapped[str] = mapped_column(String(50), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    color: Mapped[Optional[str]] = mapped_column(String(20))
+    sla_minutes: Mapped[Optional[int]] = mapped_column(Integer)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    tickets: Mapped[list["Ticket"]] = relationship(back_populates="priority")
+
+
+class TicketStatus(BaseModel):
+    __tablename__ = "ticket_statuses"
+    __table_args__ = (UniqueConstraint("code", name="uq_ticket_statuses_code"),)
+    code: Mapped[str] = mapped_column(String(50), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    color: Mapped[Optional[str]] = mapped_column(String(20))
+    is_closed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    tickets: Mapped[list["Ticket"]] = relationship(back_populates="status")
+
+
+class Ticket(BaseModel):
     __tablename__ = "tickets"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    title: Mapped[str] = mapped_column(String(200))
-    description: Mapped[str] = mapped_column(Text)
-    priority: Mapped[Priority] = mapped_column(Enum(Priority, name="priority"), default=Priority.MEDIUM)
-    status: Mapped[TicketStatus] = mapped_column(Enum(TicketStatus, name="ticket_status"), default=TicketStatus.OPEN, index=True)
-    affected_asset_service: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    customer_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    category_id: Mapped[int] = mapped_column(ForeignKey("categories.id"), index=True)
-    assignee_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
-    escalated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    __table_args__ = (UniqueConstraint("ticket_no", name="uq_tickets_ticket_no"),)
+    ticket_no: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    requester_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False, index=True)
+    department_id: Mapped[Optional[UUID]] = mapped_column(Uuid, ForeignKey("departments.id"), index=True)
+    category_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("ticket_categories.id"), nullable=False, index=True)
+    priority_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("ticket_priorities.id"), nullable=False, index=True)
+    status_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("ticket_statuses.id"), nullable=False, index=True)
+    assigned_to: Mapped[Optional[UUID]] = mapped_column(Uuid, ForeignKey("users.id"), index=True)
+    source: Mapped[str] = mapped_column(String(30), default="WEB", nullable=False)
+    due_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    requester: Mapped[User] = relationship(foreign_keys=[requester_id])
+    assignee: Mapped[Optional[User]] = relationship(foreign_keys=[assigned_to])
+    department: Mapped[Optional[Department]] = relationship(foreign_keys=[department_id])
+    category: Mapped[TicketCategory] = relationship(back_populates="tickets")
+    priority: Mapped[TicketPriority] = relationship(back_populates="tickets")
+    status: Mapped[TicketStatus] = relationship(back_populates="tickets")
+    assignments: Mapped[list["TicketAssignment"]] = relationship(back_populates="ticket")
+    histories: Mapped[list["TicketHistory"]] = relationship(back_populates="ticket")
+    comments: Mapped[list["TicketComment"]] = relationship(back_populates="ticket")
+    attachments: Mapped[list["TicketAttachment"]] = relationship(back_populates="ticket")
 
 
-class TicketComment(Timestamped):
+class TicketAssignment(BaseModel):
+    __tablename__ = "ticket_assignments"
+    ticket_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("tickets.id"), nullable=False, index=True)
+    assigned_from: Mapped[Optional[UUID]] = mapped_column(Uuid, ForeignKey("users.id"))
+    assigned_to: Mapped[UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False)
+    reason: Mapped[Optional[str]] = mapped_column(Text)
+    assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    ticket: Mapped[Ticket] = relationship(back_populates="assignments")
+
+
+class TicketHistory(BaseModel):
+    __tablename__ = "ticket_histories"
+    ticket_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("tickets.id"), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    field: Mapped[Optional[str]] = mapped_column(String(100))
+    old_value: Mapped[Optional[str]] = mapped_column(Text)
+    new_value: Mapped[Optional[str]] = mapped_column(Text)
+    performed_by: Mapped[Optional[UUID]] = mapped_column(Uuid, ForeignKey("users.id"))
+    performed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    remark: Mapped[Optional[str]] = mapped_column(Text)
+    ticket: Mapped[Ticket] = relationship(back_populates="histories")
+
+
+class TicketComment(BaseModel):
     __tablename__ = "ticket_comments"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    ticket_id: Mapped[int] = mapped_column(ForeignKey("tickets.id"), index=True)
-    author_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
-    body: Mapped[str] = mapped_column(Text)
-    is_internal: Mapped[bool] = mapped_column(Boolean, default=False)
+    ticket_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("tickets.id"), nullable=False, index=True)
+    user_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False)
+    comment: Mapped[str] = mapped_column(Text, nullable=False)
+    is_internal: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    ticket: Mapped[Ticket] = relationship(back_populates="comments")
 
 
-class Attachment(Timestamped):
-    __tablename__ = "attachments"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    ticket_id: Mapped[int] = mapped_column(ForeignKey("tickets.id"), index=True)
-    uploader_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
-    file_name: Mapped[str] = mapped_column(String(255))
-    content_type: Mapped[str] = mapped_column(String(100))
-    size_bytes: Mapped[int] = mapped_column(Integer)
-    object_key: Mapped[str] = mapped_column(String(512), unique=True)
-    is_internal: Mapped[bool] = mapped_column(Boolean, default=False)
+class TicketAttachment(BaseModel):
+    __tablename__ = "ticket_attachments"
+    ticket_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("tickets.id"), nullable=False, index=True)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    storage_path: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
+    mime_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    file_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    uploaded_by: Mapped[UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False)
+    is_internal: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    ticket: Mapped[Ticket] = relationship(back_populates="attachments")
 
 
-class Notification(Timestamped):
+class Notification(BaseModel):
     __tablename__ = "notifications"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    ticket_id: Mapped[int | None] = mapped_column(ForeignKey("tickets.id"), nullable=True)
-    message: Mapped[str] = mapped_column(String(500))
-    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    user_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    message: Mapped[str] = mapped_column(String(500), nullable=False)
+    type: Mapped[str] = mapped_column(String(50), nullable=False)
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    read_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
 
-class AuditEvent(Timestamped):
-    __tablename__ = "audit_events"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    ticket_id: Mapped[int] = mapped_column(ForeignKey("tickets.id"), index=True)
-    actor_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
-    action: Mapped[str] = mapped_column(String(100))
-    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+class ActivityLog(BaseModel):
+    __tablename__ = "activity_logs"
+    user_id: Mapped[Optional[UUID]] = mapped_column(Uuid, ForeignKey("users.id"), index=True)
+    module: Mapped[str] = mapped_column(String(100), nullable=False)
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    resource: Mapped[Optional[str]] = mapped_column(String(100))
+    resource_id: Mapped[Optional[UUID]] = mapped_column(Uuid)
+    ip: Mapped[Optional[str]] = mapped_column(String(64))
+    user_agent: Mapped[Optional[str]] = mapped_column(String(500))
+    detail: Mapped[Optional[dict]] = mapped_column(JSON)
 
 
-class RefreshToken(Timestamped):
+class LoginHistory(BaseModel):
+    __tablename__ = "login_histories"
+    user_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False, index=True)
+    ip: Mapped[Optional[str]] = mapped_column(String(64))
+    device: Mapped[Optional[str]] = mapped_column(String(255))
+    browser: Mapped[Optional[str]] = mapped_column(String(255))
+    login_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    logout_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class RefreshToken(BaseModel):
     __tablename__ = "refresh_tokens"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    token: Mapped[str] = mapped_column(String(512), unique=True)
+    user_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False, index=True)
+    token_hash: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    jti: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    replaced_by_id: Mapped[Optional[UUID]] = mapped_column(Uuid, ForeignKey("refresh_tokens.id"))
+    user: Mapped[User] = relationship(back_populates="refresh_tokens", foreign_keys=[user_id])
+
+
+# Temporary import compatibility for the pre-Phase-2 HTTP layer.  The routes
+# are deliberately migrated in the next step; new code must use the explicit
+# production names above.
+Category = TicketCategory
+Attachment = TicketAttachment
+AuditEvent = TicketHistory
