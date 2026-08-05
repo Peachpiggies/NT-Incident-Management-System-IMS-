@@ -225,7 +225,12 @@ async def register(
             detail={"device": metadata["device"], "browser": metadata["browser"]},
         )
     )
-    login_history = LoginHistory(user_id=user.id, **metadata)
+    login_history = LoginHistory(
+        user_id=user.id,
+        ip=metadata["ip"],
+        device=metadata["device"],
+        browser=metadata["browser"],
+    )
     db.add(login_history)
     await db.flush()
     response = await _issue_tokens(
@@ -252,7 +257,12 @@ async def login(
         )
     user.last_login = datetime.now(timezone.utc)
     metadata = _request_metadata(http_request)
-    login_history = LoginHistory(user_id=user.id, **metadata)
+    login_history = LoginHistory(
+        user_id=user.id,
+        ip=metadata["ip"],
+        device=metadata["device"],
+        browser=metadata["browser"],
+    )
     db.add(login_history)
     await db.flush()
     db.add(
