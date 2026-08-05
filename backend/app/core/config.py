@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     aws_secret_access_key: str | None = None
     s3_signed_url_expire_seconds: int = 900
     upload_dir: str = "uploads"
+    max_attachment_bytes: int = 10_000_000
+    max_attachments_per_ticket: int = 10
 
 
 @lru_cache

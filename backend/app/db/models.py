@@ -347,11 +347,24 @@ class LoginHistory(BaseModel):
 
 class RefreshToken(BaseModel):
     __tablename__ = "refresh_tokens"
+    session_id: Mapped[UUID] = mapped_column(
+        Uuid, default=uuid4, nullable=False, index=True
+    )
     user_id: Mapped[UUID] = mapped_column(
         Uuid, ForeignKey("users.id"), nullable=False, index=True
     )
+    login_history_id: Mapped[UUID | None] = mapped_column(
+        Uuid, ForeignKey("login_histories.id"), index=True
+    )
     token_hash: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     jti: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    ip: Mapped[str | None] = mapped_column(String(64))
+    device: Mapped[str | None] = mapped_column(String(255))
+    browser: Mapped[str | None] = mapped_column(String(255))
+    user_agent: Mapped[str | None] = mapped_column(String(500))
+    last_used_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )

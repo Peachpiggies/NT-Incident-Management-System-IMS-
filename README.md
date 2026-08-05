@@ -22,6 +22,17 @@ docker compose up --build
 
 Open the frontend at <http://localhost:3000>, API documentation at <http://localhost:8002/docs>, and the health endpoints below. The home page displays the live database-readiness result rather than a cached liveness response.
 
+## API contract
+
+The API contract is available as OpenAPI at `/api/v1/openapi.json` and Swagger UI at `/docs`.
+All resource IDs are UUIDs. Protected operations use permission-based access control
+(for example `ticket.assign`, `role.manage`, and `department.manage`); ticket reads
+also enforce `ticket.read_own` or `ticket.read_all`. Log in with
+`POST /api/v1/auth/login` and send the access token as a Bearer token.
+
+Session endpoints are available at `/api/v1/auth/sessions`. They return device/IP
+metadata but never expose refresh-token hashes or JWT IDs.
+
 Stop the stack with `docker compose down`. To remove the development database as well, run `docker compose down --volumes`.
 
 ## Local development

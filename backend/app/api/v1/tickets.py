@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +21,7 @@ from app.api.v1.dependencies import (
     user_has_permission,
 )
 from app.db.models import (
+    Department,
     Notification,
     Ticket,
     TicketAssignment,
@@ -43,6 +44,15 @@ class TicketCreate(BaseModel):
     priority_id: UUID
     department_id: UUID | None = None
     source: str = Field(default="WEB", max_length=30)
+
+
+class TicketUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=5, max_length=200)
+    description: str | None = Field(default=None, min_length=10)
+    category_id: UUID | None = None
+    priority_id: UUID | None = None
+    department_id: UUID | None = None
+    source: str | None = Field(default=None, min_length=2, max_length=30)
 
 
 class TicketResponse(BaseModel):
@@ -132,6 +142,22 @@ async def _active_master_or_400(db: AsyncSession, model, record_id: UUID, label:
     return record
 
 
+async def _active_department_or_400(
+    db: AsyncSession, department_id: UUID | None
+) -> None:
+    if department_id is not None:
+        await _active_master_or_400(db, Department, department_id, "department")
+
+
+async def _assert_ticket_editable(ticket: Ticket, db: AsyncSession) -> None:
+    current_status = await db.get(TicketStatus, ticket.status_id)
+    if current_status and current_status.is_closed:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Closed tickets cannot be edited",
+        )
+
+
 async def _status_by_code(db: AsyncSession, code: str) -> TicketStatus:
     record = await db.scalar(
         select(TicketStatus).where(
@@ -191,6 +217,9 @@ async def create_ticket(
     priority = await _active_master_or_400(
         db, TicketPriority, payload.priority_id, "ticket priority"
     )
+    await _active_department_or_400(
+        db, payload.department_id or current_user.department_id
+    )
     initial_status = await _status_by_code(db, "NEW")
     ticket_id = uuid4()
     ticket = Ticket(
@@ -217,6 +246,49 @@ async def create_ticket(
             remark="Ticket created",
         )
     )
+    await db.commit()
+    await db.refresh(ticket)
+    return ticket
+
+
+@router.patch("/tickets/{ticket_id}", response_model=TicketResponse)
+async def update_ticket(
+    ticket_id: UUID,
+    payload: TicketUpdate,
+    current_user: Annotated[User, Depends(require_permission("ticket.update"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Ticket:
+    ticket = await _get_ticket_or_404(ticket_id, db)
+    await require_ticket_read(db, current_user, ticket)
+    await _assert_ticket_editable(ticket, db)
+    updates = payload.model_dump(exclude_unset=True)
+    if "category_id" in updates and updates["category_id"] is not None:
+        await _active_master_or_400(
+            db, TicketCategory, updates["category_id"], "ticket category"
+        )
+    if "priority_id" in updates and updates["priority_id"] is not None:
+        await _active_master_or_400(
+            db, TicketPriority, updates["priority_id"], "ticket priority"
+        )
+    if "department_id" in updates:
+        await _active_department_or_400(db, updates["department_id"])
+    for field, value in updates.items():
+        if field == "source" and value is not None:
+            value = value.upper()
+        old_value = getattr(ticket, field)
+        if old_value != value:
+            setattr(ticket, field, value)
+            db.add(
+                _history(
+                    ticket,
+                    current_user.id,
+                    "ticket.update",
+                    field=field,
+                    old_value=str(old_value) if old_value is not None else None,
+                    new_value=str(value) if value is not None else None,
+                )
+            )
+    ticket.updated_by = current_user.id
     await db.commit()
     await db.refresh(ticket)
     return ticket
@@ -268,6 +340,30 @@ async def get_ticket(
     ticket = await _get_ticket_or_404(ticket_id, db)
     await require_ticket_read(db, current_user, ticket)
     return ticket
+
+
+@router.delete("/tickets/{ticket_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_ticket(
+    ticket_id: UUID,
+    current_user: Annotated[User, Depends(require_permission("ticket.delete"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Response:
+    ticket = await _get_ticket_or_404(ticket_id, db)
+    await require_ticket_read(db, current_user, ticket)
+    ticket.is_deleted = True
+    ticket.deleted_at = datetime.now(timezone.utc)
+    ticket.deleted_by = current_user.id
+    ticket.updated_by = current_user.id
+    db.add(
+        _history(
+            ticket,
+            current_user.id,
+            "ticket.delete",
+            remark="Ticket soft deleted",
+        )
+    )
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/tickets/{ticket_id}/comments", response_model=list[TicketCommentResponse])

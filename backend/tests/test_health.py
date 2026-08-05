@@ -1,7 +1,6 @@
-from fastapi.testclient import TestClient
-
 from app.api.v1.health import get_db
 from app.main import app
+from fastapi.testclient import TestClient
 
 
 def test_liveness_endpoint_returns_ok() -> None:

@@ -2,11 +2,15 @@ import asyncio
 from uuid import uuid4
 
 import pytest
-from fastapi import HTTPException
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
-from app.api.v1.auth import RefreshRequest, UserRegisterRequest, refresh, register
+from app.api.v1.auth import (
+    RefreshRequest,
+    UserRegisterRequest,
+    list_sessions,
+    refresh,
+    register,
+    revoke_all_sessions,
+    revoke_session,
+)
 from app.api.v1.dependencies import (
     require_permission,
     require_ticket_read,
@@ -44,6 +48,9 @@ from app.db.models import (
     User,
     UserRole,
 )
+from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 
 async def _session_factory(tmp_path):
@@ -64,7 +71,7 @@ def test_auth_rotation_and_reuse_revokes_all_sessions(tmp_path) -> None:
                 UserRegisterRequest(
                     email="customer@example.com",
                     full_name="Test Customer",
-                    password="secure-password-123",
+                    password="Secure-password-123!",
                 ),
                 session,
             )
@@ -79,6 +86,50 @@ def test_auth_rotation_and_reuse_revokes_all_sessions(tmp_path) -> None:
                 select(RefreshToken).where(RefreshToken.revoked_at.is_(None))
             )
             assert list(active) == []
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_session_listing_and_revoke_operations(tmp_path) -> None:
+    async def scenario() -> None:
+        engine, sessions = await _session_factory(tmp_path)
+        async with sessions() as session:
+            session.add(Role(code="customer", name="Customer", is_system=True))
+            await session.commit()
+            await register(
+                UserRegisterRequest(
+                    email="sessions@example.com",
+                    full_name="Session User",
+                    password="Secure-password-123!",
+                ),
+                session,
+            )
+            user = await session.scalar(
+                select(User).where(User.email == "sessions@example.com")
+            )
+            assert user is not None
+            active = await list_sessions(user, session)
+            assert len(active) == 1
+            assert active[0].session_id
+
+            await revoke_session(active[0].session_id, user, session)
+            assert await list_sessions(user, session) == []
+
+            await register(
+                UserRegisterRequest(
+                    email="sessions-all@example.com",
+                    full_name="Session All User",
+                    password="Secure-password-123!",
+                ),
+                session,
+            )
+            all_user = await session.scalar(
+                select(User).where(User.email == "sessions-all@example.com")
+            )
+            assert all_user is not None
+            await revoke_all_sessions(all_user, session)
+            assert await list_sessions(all_user, session) == []
         await engine.dispose()
 
     asyncio.run(scenario())
@@ -242,7 +293,7 @@ def test_user_management_syncs_multi_roles_and_activation(tmp_path) -> None:
                     email="operator@example.com",
                     first_name="Operator",
                     last_name="One",
-                    password="secure-password-123",
+                    password="Secure-password-123!",
                     department_id=department.id,
                     role_ids=[tier_one.id, tier_two.id],
                 ),
