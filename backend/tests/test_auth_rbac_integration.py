@@ -2,10 +2,6 @@ import asyncio
 from uuid import uuid4
 
 import pytest
-from fastapi import HTTPException
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
 from app.api.v1.auth import RefreshRequest, UserRegisterRequest, refresh, register
 from app.api.v1.dependencies import (
     require_permission,
@@ -44,6 +40,9 @@ from app.db.models import (
     User,
     UserRole,
 )
+from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 
 async def _session_factory(tmp_path):
