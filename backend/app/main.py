@@ -66,7 +66,7 @@ session endpoints and are never returned by session-listing APIs.
         },
         {
             "name": "Attachments",
-            "description": "Secure JPG, PNG, PDF, and DOCX ticket attachments.",
+            "description": "Secure JPG, PNG, PDF, DOCX, and XLSX ticket attachments.",
         },
     ],
     openapi_url="/api/v1/openapi.json",

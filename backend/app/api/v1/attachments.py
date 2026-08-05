@@ -30,6 +30,9 @@ ALLOWED_TYPES = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
         ".docx"
     },
+
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {".xlsx"},
+
 }
 MAX_FILENAME_LENGTH = 128
 MAX_DOCX_UNCOMPRESSED_BYTES = 50_000_000
@@ -87,19 +90,30 @@ def _validate_file_signature(content: bytes, content_type: str) -> None:
         "image/png": content.startswith(b"\x89PNG\r\n\x1a\n"),
         "application/pdf": content.startswith(b"%PDF-"),
     }
-    if (
-        content_type
-        == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    ):
+    if content_type in{
+
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+
+    }:
         try:
             with ZipFile(BytesIO(content)) as archive:
                 names = set(archive.namelist())
                 uncompressed_size = sum(
                     member.file_size for member in archive.infolist()
                 )
+
+            required_document = (
+
+                "word/document.xml"
+                if content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                else "xl/workbook.xml"
+
+            )
+
             valid[content_type] = (
                 "[Content_Types].xml" in names
-                and "word/document.xml" in names
+                and required_document in names
                 and uncompressed_size <= MAX_DOCX_UNCOMPRESSED_BYTES
             )
         except BadZipFile:
