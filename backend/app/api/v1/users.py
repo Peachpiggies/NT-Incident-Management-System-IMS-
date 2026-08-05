@@ -5,12 +5,13 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_current_user, require_permission
 from app.core.security import hash_password
+from app.core.validation import normalize_email, validate_password, validate_phone
 from app.db.models import ActivityLog, Department, RefreshToken, Role, User, UserRole
 from app.db.session import get_db
 
@@ -59,6 +60,21 @@ class UserCreateRequest(BaseModel):
     department_id: UUID | None = None
     role_ids: list[UUID] = Field(min_length=1)
 
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        return normalize_email(value)
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone_number(cls, value: str | None) -> str | None:
+        return validate_phone(value)
+
+    @field_validator("password")
+    @classmethod
+    def validate_new_password(cls, value: str) -> str:
+        return validate_password(value)
+
 
 class UserUpdateRequest(BaseModel):
     username: str | None = Field(
@@ -71,6 +87,16 @@ class UserUpdateRequest(BaseModel):
     phone: str | None = Field(default=None, max_length=30)
     department_id: UUID | None = None
     role_ids: list[UUID] | None = Field(default=None, min_length=1)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str | None) -> str | None:
+        return normalize_email(value) if value is not None else None
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone_number(cls, value: str | None) -> str | None:
+        return validate_phone(value)
 
 
 async def _get_user_or_404(db: AsyncSession, user_id: UUID) -> User:

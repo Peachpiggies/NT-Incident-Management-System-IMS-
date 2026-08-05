@@ -1,11 +1,11 @@
 import hmac
 from datetime import datetime, timezone
 from typing import Annotated
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
-from sqlalchemy import select, update
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_current_user
@@ -17,7 +17,15 @@ from app.core.security import (
     hash_refresh_token,
     verify_password,
 )
-from app.db.models import ActivityLog, LoginHistory, RefreshToken, Role, User, UserRole
+from app.core.validation import normalize_email, validate_password
+from app.db.models import (
+    ActivityLog,
+    LoginHistory,
+    RefreshToken,
+    Role,
+    User,
+    UserRole,
+)
 from app.db.session import get_db
 
 router = APIRouter(tags=["Auth"])
@@ -37,10 +45,25 @@ class UserRegisterRequest(BaseModel):
     )
     password: str = Field(..., min_length=12, max_length=128)
 
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        return normalize_email(value)
+
+    @field_validator("password")
+    @classmethod
+    def validate_new_password(cls, value: str) -> str:
+        return validate_password(value)
+
 
 class UserLoginRequest(BaseModel):
     email: str
     password: str = Field(..., min_length=1, max_length=128)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        return normalize_email(value)
 
 
 class RefreshRequest(BaseModel):
@@ -51,6 +74,24 @@ class ChangePasswordRequest(BaseModel):
     current_password: str = Field(..., min_length=1, max_length=128)
     new_password: str = Field(..., min_length=12, max_length=128)
 
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, value: str) -> str:
+        return validate_password(value)
+
+
+class SessionResponse(BaseModel):
+    session_id: UUID
+    ip: str | None
+    device: str | None
+    browser: str | None
+    user_agent: str | None
+    created_at: datetime
+    last_used_at: datetime
+    expires_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
 
 async def _get_user_by_email(db: AsyncSession, email: str) -> User | None:
     return await db.scalar(select(User).where(User.email == email.lower()))
@@ -60,13 +101,39 @@ async def _get_user_by_id(db: AsyncSession, user_id: UUID) -> User | None:
     return await db.get(User, user_id)
 
 
-async def _issue_tokens(db: AsyncSession, user: User) -> AuthResponse:
+def _request_metadata(request: Request | None) -> dict[str, str | None]:
+    if request is None:
+        return {"ip": None, "device": None, "browser": None, "user_agent": None}
+    user_agent = request.headers.get("user-agent")
+    return {
+        "ip": request.client.host if request.client else None,
+        "device": request.headers.get("x-device-name", user_agent)[:255]
+        if request.headers.get("x-device-name", user_agent)
+        else None,
+        "browser": request.headers.get("sec-ch-ua", user_agent)[:255]
+        if request.headers.get("sec-ch-ua", user_agent)
+        else None,
+        "user_agent": user_agent[:500] if user_agent else None,
+    }
+
+
+async def _issue_tokens(
+    db: AsyncSession,
+    user: User,
+    metadata: dict[str, str | None],
+    *,
+    session_id: UUID | None = None,
+    login_history_id: UUID | None = None,
+) -> AuthResponse:
     refresh = create_refresh_token(user.id)
     entity = RefreshToken(
+        session_id=session_id or uuid4(),
         user_id=user.id,
+        login_history_id=login_history_id,
         token_hash=hash_refresh_token(refresh.token),
         jti=refresh.jti,
         expires_at=refresh.expires_at,
+        **metadata,
     )
     db.add(entity)
     await db.flush()
@@ -76,11 +143,30 @@ async def _issue_tokens(db: AsyncSession, user: User) -> AuthResponse:
 
 
 async def _revoke_all_refresh_tokens(db: AsyncSession, user_id: UUID) -> None:
-    await db.execute(
-        update(RefreshToken)
-        .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
-        .values(revoked_at=datetime.now(timezone.utc))
+    tokens = list(
+        (
+            await db.scalars(
+                select(RefreshToken).where(
+                    RefreshToken.user_id == user_id,
+                    RefreshToken.revoked_at.is_(None),
+                )
+            )
+        ).all()
     )
+    await _revoke_tokens(db, tokens)
+
+
+async def _revoke_tokens(db: AsyncSession, tokens: list[RefreshToken]) -> None:
+    now = datetime.now(timezone.utc)
+    login_history_ids = {
+        token.login_history_id for token in tokens if token.login_history_id
+    }
+    for token in tokens:
+        token.revoked_at = now
+    for history_id in login_history_ids:
+        history = await db.get(LoginHistory, history_id)
+        if history and history.logout_at is None:
+            history.logout_at = now
 
 
 def _is_expired(expires_at: datetime) -> bool:
@@ -94,7 +180,9 @@ def _is_expired(expires_at: datetime) -> bool:
     "/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED
 )
 async def register(
-    request: UserRegisterRequest, db: Annotated[AsyncSession, Depends(get_db)]
+    request: UserRegisterRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    http_request: Request = None,
 ) -> AuthResponse:
     email = request.email.lower()
     username = request.username or email.split("@", 1)[0]
@@ -124,6 +212,7 @@ async def register(
             detail="Role seed data is unavailable",
         )
     db.add(UserRole(user_id=user.id, role_id=customer.id, created_by=user.id))
+    metadata = _request_metadata(http_request)
     db.add(
         ActivityLog(
             user_id=user.id,
@@ -131,16 +220,26 @@ async def register(
             action="register",
             resource="user",
             resource_id=user.id,
+            ip=metadata["ip"],
+            user_agent=metadata["user_agent"],
+            detail={"device": metadata["device"], "browser": metadata["browser"]},
         )
     )
-    response = await _issue_tokens(db, user)
+    login_history = LoginHistory(user_id=user.id, **metadata)
+    db.add(login_history)
+    await db.flush()
+    response = await _issue_tokens(
+        db, user, metadata, login_history_id=login_history.id
+    )
     await db.commit()
     return response
 
 
 @router.post("/login", response_model=AuthResponse)
 async def login(
-    request: UserLoginRequest, db: Annotated[AsyncSession, Depends(get_db)]
+    request: UserLoginRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    http_request: Request = None,
 ) -> AuthResponse:
     user = await _get_user_by_email(db, request.email)
     if (
@@ -152,7 +251,10 @@ async def login(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
         )
     user.last_login = datetime.now(timezone.utc)
-    db.add(LoginHistory(user_id=user.id))
+    metadata = _request_metadata(http_request)
+    login_history = LoginHistory(user_id=user.id, **metadata)
+    db.add(login_history)
+    await db.flush()
     db.add(
         ActivityLog(
             user_id=user.id,
@@ -160,9 +262,14 @@ async def login(
             action="login",
             resource="user",
             resource_id=user.id,
+            ip=metadata["ip"],
+            user_agent=metadata["user_agent"],
+            detail={"device": metadata["device"], "browser": metadata["browser"]},
         )
     )
-    response = await _issue_tokens(db, user)
+    response = await _issue_tokens(
+        db, user, metadata, login_history_id=login_history.id
+    )
     await db.commit()
     return response
 
@@ -203,8 +310,20 @@ async def refresh(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
         )
+    entity.last_used_at = datetime.now(timezone.utc)
     entity.revoked_at = datetime.now(timezone.utc)
-    response = await _issue_tokens(db, user)
+    response = await _issue_tokens(
+        db,
+        user,
+        {
+            "ip": entity.ip,
+            "device": entity.device,
+            "browser": entity.browser,
+            "user_agent": entity.user_agent,
+        },
+        session_id=entity.session_id,
+        login_history_id=entity.login_history_id,
+    )
     replacement = await db.scalar(
         select(RefreshToken).where(
             RefreshToken.jti == decode_refresh_token(response.refresh_token)["jti"]
@@ -217,7 +336,9 @@ async def refresh(
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(
-    request: RefreshRequest, db: Annotated[AsyncSession, Depends(get_db)]
+    request: RefreshRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    http_request: Request = None,
 ) -> None:
     payload = decode_refresh_token(request.refresh_token)
     entity = await db.scalar(
@@ -230,8 +351,95 @@ async def logout(
         )
         and entity.revoked_at is None
     ):
-        entity.revoked_at = datetime.now(timezone.utc)
+        await _revoke_tokens(db, [entity])
+        metadata = _request_metadata(http_request)
+        db.add(
+            ActivityLog(
+                user_id=entity.user_id,
+                module="auth",
+                action="logout",
+                resource="session",
+                resource_id=entity.session_id,
+                ip=metadata["ip"],
+                user_agent=metadata["user_agent"],
+                detail={"device": metadata["device"], "browser": metadata["browser"]},
+            )
+        )
         await db.commit()
+
+
+@router.get("/sessions", response_model=list[SessionResponse])
+async def list_sessions(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[RefreshToken]:
+    """Return active logical sessions; token hashes and JTIs are never exposed."""
+    now = datetime.now(timezone.utc)
+    return list(
+        (
+            await db.scalars(
+                select(RefreshToken)
+                .where(
+                    RefreshToken.user_id == current_user.id,
+                    RefreshToken.revoked_at.is_(None),
+                    RefreshToken.expires_at > now,
+                )
+                .order_by(RefreshToken.last_used_at.desc())
+            )
+        ).all()
+    )
+
+
+@router.post("/sessions/{session_id}/revoke", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_session(
+    session_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> None:
+    tokens = list(
+        (
+            await db.scalars(
+                select(RefreshToken).where(
+                    RefreshToken.user_id == current_user.id,
+                    RefreshToken.session_id == session_id,
+                    RefreshToken.revoked_at.is_(None),
+                )
+            )
+        ).all()
+    )
+    if not tokens:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
+        )
+    await _revoke_tokens(db, tokens)
+    db.add(
+        ActivityLog(
+            user_id=current_user.id,
+            module="auth",
+            action="revoke_session",
+            resource="session",
+            resource_id=session_id,
+        )
+    )
+    await db.commit()
+
+
+@router.post("/sessions/revoke-all", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_all_sessions(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> None:
+    await _revoke_all_refresh_tokens(db, current_user.id)
+    db.add(
+        ActivityLog(
+            user_id=current_user.id,
+            module="auth",
+            action="revoke_all_sessions",
+            resource="user",
+            resource_id=current_user.id,
+        )
+    )
+    await db.commit()
 
 
 @router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)

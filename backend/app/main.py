@@ -30,9 +30,48 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.1.0",
+    version="0.2.0",
+    description="""
+NT Incident Management System API.
+
+All resource identifiers are UUIDs. Authorization is database-driven PBAC:
+each protected operation names its required permission (for example
+`ticket.assign` or `department.manage`). Ticket visibility additionally uses
+`ticket.read_own` or `ticket.read_all`.
+
+Authenticate with `POST /api/v1/auth/login`, then use the returned access token
+with the **Authorize** button. Refresh tokens are only accepted by the auth
+session endpoints and are never returned by session-listing APIs.
+""",
+    openapi_tags=[
+        {
+            "name": "Auth",
+            "description": "JWT authentication and refresh-token session management.",
+        },
+        {
+            "name": "Users",
+            "description": "UUID user profiles and multi-role management.",
+        },
+        {
+            "name": "Organization",
+            "description": "Departments, roles, and user-role assignments.",
+        },
+        {
+            "name": "Permissions",
+            "description": "PBAC permissions and role-permission assignments.",
+        },
+        {
+            "name": "Tickets",
+            "description": "UUID tickets backed by configurable category, priority, and status master data.",
+        },
+        {
+            "name": "Attachments",
+            "description": "Secure JPG, PNG, PDF, and DOCX ticket attachments.",
+        },
+    ],
     openapi_url="/api/v1/openapi.json",
     docs_url="/docs",
+    swagger_ui_parameters={"persistAuthorization": True},
     lifespan=lifespan,
 )
 
