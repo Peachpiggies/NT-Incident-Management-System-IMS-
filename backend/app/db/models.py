@@ -7,14 +7,16 @@ the business workflow without a deployment.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
     JSON,
     Boolean,
+    Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -179,6 +181,51 @@ class TicketCategory(BaseModel):
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     tickets: Mapped[list[Ticket]] = relationship(back_populates="category")
+    subcategories: Mapped[list[TicketSubcategory]] = relationship(
+        back_populates="category"
+    )
+
+
+class TicketSubcategory(BaseModel):
+    """A configurable child classification of a ticket category."""
+
+    __tablename__ = "ticket_subcategories"
+    __table_args__ = (
+        UniqueConstraint(
+            "category_id", "code", name="uq_ticket_subcategories_category_code"
+        ),
+    )
+    category_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("ticket_categories.id"), nullable=False, index=True
+    )
+    code: Mapped[str] = mapped_column(String(50), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    category: Mapped[TicketCategory] = relationship(back_populates="subcategories")
+    services: Mapped[list[TicketService]] = relationship(back_populates="subcategory")
+    tickets: Mapped[list[Ticket]] = relationship(back_populates="subcategory")
+
+
+class TicketService(BaseModel):
+    """Business service offered under a subcategory (for routing and SLA later)."""
+
+    __tablename__ = "ticket_services"
+    __table_args__ = (
+        UniqueConstraint(
+            "subcategory_id", "code", name="uq_ticket_services_subcategory_code"
+        ),
+    )
+    subcategory_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("ticket_subcategories.id"), nullable=False, index=True
+    )
+    code: Mapped[str] = mapped_column(String(50), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    subcategory: Mapped[TicketSubcategory] = relationship(back_populates="services")
+    tickets: Mapped[list[Ticket]] = relationship(back_populates="service")
 
 
 class TicketPriority(BaseModel):
@@ -203,11 +250,67 @@ class TicketStatus(BaseModel):
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     tickets: Mapped[list[Ticket]] = relationship(back_populates="status")
+    transitions_from: Mapped[list[TicketStatusTransition]] = relationship(
+        back_populates="from_status",
+        foreign_keys="TicketStatusTransition.from_status_id",
+    )
+    transitions_to: Mapped[list[TicketStatusTransition]] = relationship(
+        back_populates="to_status", foreign_keys="TicketStatusTransition.to_status_id"
+    )
+
+
+class TicketStatusTransition(BaseModel):
+    """An administrator-configured, directed edge in the ticket state machine."""
+
+    __tablename__ = "ticket_status_transitions"
+    __table_args__ = (
+        UniqueConstraint(
+            "from_status_id", "to_status_id", name="uq_ticket_status_transitions_edge"
+        ),
+        Index(
+            "ix_ticket_status_transitions_from_active", "from_status_id", "is_active"
+        ),
+    )
+    from_status_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("ticket_statuses.id"), nullable=False, index=True
+    )
+    to_status_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("ticket_statuses.id"), nullable=False, index=True
+    )
+    required_permission: Mapped[str | None] = mapped_column(String(200))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    from_status: Mapped[TicketStatus] = relationship(
+        back_populates="transitions_from", foreign_keys=[from_status_id]
+    )
+    to_status: Mapped[TicketStatus] = relationship(
+        back_populates="transitions_to", foreign_keys=[to_status_id]
+    )
 
 
 class Ticket(BaseModel):
     __tablename__ = "tickets"
-    __table_args__ = (UniqueConstraint("ticket_no", name="uq_tickets_ticket_no"),)
+    __table_args__ = (
+        UniqueConstraint("ticket_no", name="uq_tickets_ticket_no"),
+        Index(
+            "ix_tickets_requester_status_created",
+            "requester_id",
+            "status_id",
+            "created_at",
+        ),
+        Index(
+            "ix_tickets_assignee_status_created",
+            "assigned_to",
+            "status_id",
+            "created_at",
+        ),
+        Index("ix_tickets_category_priority", "category_id", "priority_id"),
+        Index(
+            "ix_tickets_department_status_created",
+            "department_id",
+            "status_id",
+            "created_at",
+        ),
+    )
     ticket_no: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
@@ -219,6 +322,12 @@ class Ticket(BaseModel):
     )
     category_id: Mapped[UUID] = mapped_column(
         Uuid, ForeignKey("ticket_categories.id"), nullable=False, index=True
+    )
+    subcategory_id: Mapped[UUID | None] = mapped_column(
+        Uuid, ForeignKey("ticket_subcategories.id"), index=True
+    )
+    service_id: Mapped[UUID | None] = mapped_column(
+        Uuid, ForeignKey("ticket_services.id"), index=True
     )
     priority_id: Mapped[UUID] = mapped_column(
         Uuid, ForeignKey("ticket_priorities.id"), nullable=False, index=True
@@ -237,12 +346,24 @@ class Ticket(BaseModel):
     assignee: Mapped[User | None] = relationship(foreign_keys=[assigned_to])
     department: Mapped[Department | None] = relationship(foreign_keys=[department_id])
     category: Mapped[TicketCategory] = relationship(back_populates="tickets")
+    subcategory: Mapped[TicketSubcategory | None] = relationship(
+        back_populates="tickets"
+    )
+    service: Mapped[TicketService | None] = relationship(back_populates="tickets")
     priority: Mapped[TicketPriority] = relationship(back_populates="tickets")
     status: Mapped[TicketStatus] = relationship(back_populates="tickets")
     assignments: Mapped[list[TicketAssignment]] = relationship(back_populates="ticket")
     histories: Mapped[list[TicketHistory]] = relationship(back_populates="ticket")
     comments: Mapped[list[TicketComment]] = relationship(back_populates="ticket")
     attachments: Mapped[list[TicketAttachment]] = relationship(back_populates="ticket")
+
+
+class TicketNumberSequence(Base):
+    """One locked counter per UTC day for human-friendly incident numbers."""
+
+    __tablename__ = "ticket_number_sequences"
+    business_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    last_value: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
 class TicketAssignment(BaseModel):
@@ -287,6 +408,25 @@ class TicketComment(BaseModel):
     comment: Mapped[str] = mapped_column(Text, nullable=False)
     is_internal: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     ticket: Mapped[Ticket] = relationship(back_populates="comments")
+    mentions: Mapped[list[TicketCommentMention]] = relationship(
+        back_populates="comment", cascade="all, delete-orphan"
+    )
+
+
+class TicketCommentMention(BaseModel):
+    __tablename__ = "ticket_comment_mentions"
+    __table_args__ = (
+        UniqueConstraint(
+            "comment_id", "user_id", name="uq_ticket_comment_mentions_comment_user"
+        ),
+    )
+    comment_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("ticket_comments.id"), nullable=False, index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("users.id"), nullable=False, index=True
+    )
+    comment: Mapped[TicketComment] = relationship(back_populates="mentions")
 
 
 class TicketAttachment(BaseModel):
@@ -302,6 +442,11 @@ class TicketAttachment(BaseModel):
         Uuid, ForeignKey("users.id"), nullable=False
     )
     is_internal: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    scan_status: Mapped[str] = mapped_column(
+        String(20), default="PENDING", nullable=False, index=True
+    )
+    scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scan_detail: Mapped[str | None] = mapped_column(Text)
     ticket: Mapped[Ticket] = relationship(back_populates="attachments")
 
 

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import PurePath
 from typing import Annotated
@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 from zipfile import BadZipFile, ZipFile
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,9 +19,10 @@ from app.api.v1.dependencies import (
     user_has_permission,
 )
 from app.core.config import settings
-from app.core.storage import get_download_url, upload_file_object
+from app.core.storage import delete_file_object, get_download_url, upload_file_object
 from app.db.models import Ticket, TicketAttachment, User
 from app.db.session import get_db
+from app.services.virus_scan import submit_attachment_for_scan
 
 router = APIRouter(tags=["Attachments"])
 ALLOWED_TYPES = {
@@ -36,6 +38,8 @@ ALLOWED_TYPES = {
 }
 MAX_FILENAME_LENGTH = 128
 MAX_DOCX_UNCOMPRESSED_BYTES = 50_000_000
+PREVIEWABLE_TYPES = {"image/jpeg", "image/png", "application/pdf"}
+SCAN_STATUSES = {"PENDING", "CLEAN", "INFECTED", "FAILED"}
 
 
 class AttachmentResponse(BaseModel):
@@ -46,8 +50,16 @@ class AttachmentResponse(BaseModel):
     file_size: int
     storage_path: str
     is_internal: bool
+    scan_status: str
+    scanned_at: datetime | None
+    scan_detail: str | None
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
+
+
+class ScanResultRequest(BaseModel):
+    status: str
+    detail: str | None = None
 
 
 async def _ticket(ticket_id: UUID, user: User, db: AsyncSession) -> Ticket:
@@ -56,6 +68,20 @@ async def _ticket(ticket_id: UUID, user: User, db: AsyncSession) -> Ticket:
         raise HTTPException(404, "Ticket not found")
     await require_ticket_read(db, user, ticket)
     return ticket
+
+
+async def _attachment_for_ticket(
+    ticket_id: UUID, attachment_id: UUID, user: User, db: AsyncSession
+) -> TicketAttachment:
+    await _ticket(ticket_id, user, db)
+    attachment = await db.get(TicketAttachment, attachment_id)
+    if attachment is None or attachment.ticket_id != ticket_id or attachment.is_deleted:
+        raise HTTPException(404, "Attachment not found")
+    if attachment.is_internal and not await user_has_permission(
+        db, user.id, "ticket.internal_note"
+    ):
+        raise HTTPException(403, "Forbidden")
+    return attachment
 
 
 def _sanitize_filename(filename: str | None, content_type: str) -> str:
@@ -196,6 +222,9 @@ async def upload_attachment(
         file_size=len(content),
         uploaded_by=current_user.id,
     )
+    submission = await submit_attachment_for_scan(attachment)
+    attachment.scan_status = submission.status
+    attachment.scan_detail = submission.detail
     db.add(attachment)
     await db.commit()
     await db.refresh(attachment)
@@ -212,14 +241,87 @@ async def get_attachment(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> AttachmentResponse:
-    await _ticket(ticket_id, current_user, db)
-    attachment = await db.get(TicketAttachment, attachment_id)
-    if not attachment or attachment.ticket_id != ticket_id or attachment.is_deleted:
-        raise HTTPException(404, "Attachment not found")
-    if attachment.is_internal and not await user_has_permission(
-        db, current_user.id, "ticket.internal_note"
-    ):
-        raise HTTPException(403, "Forbidden")
+    attachment = await _attachment_for_ticket(
+        ticket_id, attachment_id, current_user, db
+    )
     data = AttachmentResponse.model_validate(attachment)
     data.storage_path = get_download_url(attachment.storage_path)
     return data
+
+
+@router.get("/tickets/{ticket_id}/attachments/{attachment_id}/preview")
+async def preview_attachment(
+    ticket_id: UUID,
+    attachment_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    attachment = await _attachment_for_ticket(
+        ticket_id, attachment_id, current_user, db
+    )
+    if attachment.mime_type not in PREVIEWABLE_TYPES:
+        raise HTTPException(status_code=415, detail="Preview is not supported for this file type")
+    if attachment.scan_status != "CLEAN":
+        raise HTTPException(
+            status_code=423,
+            detail="Attachment is quarantined pending a clean virus scan",
+        )
+    if settings.aws_s3_bucket:
+        return RedirectResponse(get_download_url(attachment.storage_path))
+    return FileResponse(
+        attachment.storage_path,
+        media_type=attachment.mime_type,
+        content_disposition_type="inline",
+    )
+
+
+@router.delete(
+    "/tickets/{ticket_id}/attachments/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+async def delete_attachment(
+    ticket_id: UUID,
+    attachment_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> None:
+    attachment = await _attachment_for_ticket(
+        ticket_id, attachment_id, current_user, db
+    )
+    can_manage = await user_has_permission(
+        db, current_user.id, "ticket.attachment_manage"
+    )
+    if attachment.uploaded_by != current_user.id and not can_manage:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    attachment.is_deleted = True
+    attachment.deleted_at = datetime.now(timezone.utc)
+    attachment.deleted_by = current_user.id
+    attachment.updated_by = current_user.id
+    await db.commit()
+    try:
+        delete_file_object(attachment.storage_path)
+    except RuntimeError:
+        pass
+
+
+@router.post(
+    "/attachments/{attachment_id}/scan-result", response_model=AttachmentResponse
+)
+async def record_scan_result(
+    attachment_id: UUID,
+    payload: ScanResultRequest,
+    current_user: Annotated[User, Depends(require_permission("configuration.manage"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> TicketAttachment:
+    scan_status = payload.status.upper()
+    if scan_status not in SCAN_STATUSES:
+        raise HTTPException(status_code=422, detail="Invalid scan status")
+    attachment = await db.get(TicketAttachment, attachment_id)
+    if attachment is None or attachment.is_deleted:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    attachment.scan_status = scan_status
+    attachment.scan_detail = payload.detail
+    attachment.scanned_at = datetime.now(timezone.utc)
+    attachment.updated_by = current_user.id
+    await db.commit()
+    await db.refresh(attachment)
+    return attachment

@@ -56,3 +56,22 @@ def get_download_url(object_key: str) -> str:
         )
 
     return object_key
+
+
+def delete_file_object(object_key: str) -> None:
+    """Remove one explicitly addressed object after its DB record is deleted."""
+    if settings.aws_s3_bucket:
+        client = boto3.client(
+            "s3",
+            region_name=settings.aws_region,
+            endpoint_url=settings.aws_s3_endpoint_url,
+            aws_access_key_id=settings.aws_access_key_id,
+            aws_secret_access_key=settings.aws_secret_access_key,
+        )
+        try:
+            client.delete_object(Bucket=settings.aws_s3_bucket, Key=object_key)
+        except (ClientError, BotoCoreError) as exc:
+            raise RuntimeError("Failed to delete attachment from S3") from exc
+        return
+    if os.path.isfile(object_key):
+        os.remove(object_key)
