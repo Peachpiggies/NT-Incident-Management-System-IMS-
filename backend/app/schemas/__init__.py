@@ -7,7 +7,6 @@ directly from `app.schemas` instead of the individual submodules.
 
 from app.schemas.auth import (
 
-    
     ChangePasswordRequest,
 
     CurrentUser,
