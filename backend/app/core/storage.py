@@ -136,7 +136,7 @@ def upload_file_object(
             "Failed to write file to local storage"
         ) from exc
 
-    return str(path)
+    return object_key
 
 
 # ==========================================================
@@ -244,4 +244,4 @@ def get_download_url(object_key: str) -> str:
             "Stored file does not exist"
         )
 
-    return str(path)
+    return object_key
