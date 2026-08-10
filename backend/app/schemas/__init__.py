@@ -25,6 +25,8 @@ from app.schemas.auth import (
 
     RegisterRequest,
 
+    SessionResponse,
+
     Token,
 
     TokenPayload,
@@ -79,6 +81,7 @@ __all__ = [
     "MessageResponse",
     "RefreshTokenRequest",
     "RegisterRequest",
+    "SessionResponse",
     "Token",
     "TokenPayload",
 

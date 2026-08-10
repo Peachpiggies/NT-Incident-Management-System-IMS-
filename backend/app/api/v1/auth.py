@@ -4,9 +4,26 @@ from typing import Annotated
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.schemas.auth import (
+    
+    ChangePasswordRequest,
+
+    LoginRequest,
+
+    LogoutRequest,
+    
+    RefreshTokenRequest,
+    
+    RegisterRequest,
+    
+    SessionResponse,
+    
+    Token,
+    
+)
 
 from app.api.v1.dependencies import get_current_user
 from app.core.security import (
@@ -29,68 +46,6 @@ from app.db.models import (
 from app.db.session import get_db
 
 router = APIRouter(tags=["Auth"])
-
-
-class AuthResponse(BaseModel):
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-
-
-class UserRegisterRequest(BaseModel):
-    email: str = Field(..., min_length=3, max_length=255)
-    full_name: str = Field(..., min_length=3, max_length=200)
-    username: str | None = Field(
-        None, min_length=3, max_length=100, pattern=r"^[a-zA-Z0-9._-]+$"
-    )
-    password: str = Field(..., min_length=12, max_length=128)
-
-    @field_validator("email")
-    @classmethod
-    def validate_email(cls, value: str) -> str:
-        return normalize_email(value)
-
-    @field_validator("password")
-    @classmethod
-    def validate_new_password(cls, value: str) -> str:
-        return validate_password(value)
-
-
-class UserLoginRequest(BaseModel):
-    email: str
-    password: str = Field(..., min_length=1, max_length=128)
-
-    @field_validator("email")
-    @classmethod
-    def validate_email(cls, value: str) -> str:
-        return normalize_email(value)
-
-
-class RefreshRequest(BaseModel):
-    refresh_token: str
-
-
-class ChangePasswordRequest(BaseModel):
-    current_password: str = Field(..., min_length=1, max_length=128)
-    new_password: str = Field(..., min_length=12, max_length=128)
-
-    @field_validator("new_password")
-    @classmethod
-    def validate_new_password(cls, value: str) -> str:
-        return validate_password(value)
-
-
-class SessionResponse(BaseModel):
-    session_id: UUID
-    ip: str | None
-    device: str | None
-    browser: str | None
-    user_agent: str | None
-    created_at: datetime
-    last_used_at: datetime
-    expires_at: datetime
-
-    model_config = ConfigDict(from_attributes=True)
 
 
 async def _get_user_by_email(db: AsyncSession, email: str) -> User | None:
@@ -124,7 +79,7 @@ async def _issue_tokens(
     *,
     session_id: UUID | None = None,
     login_history_id: UUID | None = None,
-) -> AuthResponse:
+) -> Token:
     refresh = create_refresh_token(user.id)
     entity = RefreshToken(
         session_id=session_id or uuid4(),
@@ -137,7 +92,7 @@ async def _issue_tokens(
     )
     db.add(entity)
     await db.flush()
-    return AuthResponse(
+    return Token(
         access_token=create_access_token(user.id), refresh_token=refresh.token
     )
 
@@ -177,13 +132,13 @@ def _is_expired(expires_at: datetime) -> bool:
 
 
 @router.post(
-    "/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED
+    "/register", response_model=Token, status_code=status.HTTP_201_CREATED
 )
 async def register(
-    request: UserRegisterRequest,
+    request: RegisterRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
     http_request: Request = None,
-) -> AuthResponse:
+) -> Token:
     email = request.email.lower()
     username = request.username or email.split("@", 1)[0]
     if await _get_user_by_email(db, email) or await db.scalar(
@@ -240,12 +195,12 @@ async def register(
     return response
 
 
-@router.post("/login", response_model=AuthResponse)
+@router.post("/login", response_model=Token)
 async def login(
-    request: UserLoginRequest,
+    request: LoginRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
     http_request: Request = None,
-) -> AuthResponse:
+) -> Token:
     user = await _get_user_by_email(db, request.email)
     if (
         not user
@@ -284,10 +239,10 @@ async def login(
     return response
 
 
-@router.post("/refresh", response_model=AuthResponse)
+@router.post("/refresh", response_model=Token)
 async def refresh(
-    request: RefreshRequest, db: Annotated[AsyncSession, Depends(get_db)]
-) -> AuthResponse:
+    request: RefreshTokenRequest, db: Annotated[AsyncSession, Depends(get_db)]
+) -> Token:
     payload = decode_refresh_token(request.refresh_token)
     entity = await db.scalar(
         select(RefreshToken).where(RefreshToken.jti == payload["jti"]).with_for_update()
@@ -346,7 +301,7 @@ async def refresh(
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(
-    request: RefreshRequest,
+    request: LogoutRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
     http_request: Request = None,
 ) -> None:
@@ -480,3 +435,18 @@ async def change_password(
         )
     )
     await db.commit()
+
+
+@router.get("/sessions", response_model=list[SessionResponse])
+async def list_sessions(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[RefreshToken]:
+
+    result = await db.execute(
+        select(RefreshToken)
+        .where(RefreshToken.user_id == current_user.id)
+        .order_by(RefreshToken.created_at.desc())
+    )
+
+    return list(result.scalars().all())
