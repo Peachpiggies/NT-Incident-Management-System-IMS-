@@ -477,6 +477,7 @@ async def get_attachment(
 @router.delete(
     "/tickets/{ticket_id}/attachments/{attachment_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
 )
 async def delete_attachment(
     ticket_id: UUID,
