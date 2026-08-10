@@ -136,7 +136,7 @@ def upload_file_object(
             "Failed to write file to local storage"
         ) from exc
 
-    return object_key
+    return str(path)
 
 
 # ==========================================================
