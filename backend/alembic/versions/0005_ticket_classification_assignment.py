@@ -1,6 +1,6 @@
 """Add subcategory/service classification and assignment query support.
 
-Revision ID: 0005_ticket_classification_assignment
+Revision ID: 0005_ticket_classification
 Revises: 0004_ticket_query_performance
 Create Date: 2026-08-05
 """
@@ -8,7 +8,7 @@ Create Date: 2026-08-05
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0005_ticket_classification_assignment"
+revision = "0005_ticket_classification"
 down_revision = "0004_ticket_query_performance"
 branch_labels = None
 depends_on = None

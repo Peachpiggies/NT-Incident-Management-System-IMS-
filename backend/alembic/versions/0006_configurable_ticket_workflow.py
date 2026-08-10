@@ -1,15 +1,15 @@
 """Add configurable allowed transitions for ticket workflow.
 
-Revision ID: 0006_configurable_ticket_workflow
-Revises: 0005_ticket_classification_assignment
+Revision ID: 0006_workflow_transitions
+Revises: 0005_ticket_classification
 Create Date: 2026-08-05
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0006_configurable_ticket_workflow"
-down_revision = "0005_ticket_classification_assignment"
+revision = "0006_workflow_transitions"
+down_revision = "0005_ticket_classification"
 branch_labels = None
 depends_on = None
 
