@@ -13,6 +13,7 @@ from app.db.models import (
     TicketCategory,
     TicketPriority,
     TicketStatus,
+    TicketStatusTransition,
     User,
     UserRole,
 )
@@ -52,6 +53,8 @@ async def _create_harness(
                 "read_all",
                 "comment",
                 "assign",
+                "start",
+                "pending",
                 "resolve",
                 "close",
                 "update",
@@ -61,6 +64,11 @@ async def _create_harness(
             Permission(module="user", action="manage", code="user.manage"),
             Permission(module="role", action="manage", code="role.manage"),
             Permission(module="department", action="manage", code="department.manage"),
+            Permission(
+                module="configuration",
+                action="manage",
+                code="configuration.manage",
+            ),
         ]
         admin = User(
             username="admin",
@@ -145,6 +153,8 @@ async def _create_harness(
             if permission.code in {
                 "ticket.read_all",
                 "ticket.assign",
+                "ticket.start",
+                "ticket.pending",
                 "ticket.resolve",
                 "ticket.close",
                 "ticket.update",
@@ -152,6 +162,24 @@ async def _create_harness(
                 db.add(
                     RolePermission(role_id=agent_role.id, permission_id=permission.id)
                 )
+        by_status_code = {
+            ticket_status.code: ticket_status for ticket_status in statuses
+        }
+        for from_code, to_code, permission_code in [
+            ("NEW", "ASSIGNED", "ticket.assign"),
+            ("ASSIGNED", "IN_PROGRESS", "ticket.start"),
+            ("IN_PROGRESS", "PENDING", "ticket.pending"),
+            ("PENDING", "IN_PROGRESS", "ticket.start"),
+            ("IN_PROGRESS", "RESOLVED", "ticket.resolve"),
+            ("RESOLVED", "CLOSED", "ticket.close"),
+        ]:
+            db.add(
+                TicketStatusTransition(
+                    from_status_id=by_status_code[from_code].id,
+                    to_status_id=by_status_code[to_code].id,
+                    required_permission=permission_code,
+                )
+            )
         await db.commit()
         return (
             engine,
@@ -277,6 +305,26 @@ def test_permission_ownership_management_and_ticket_workflow_http(tmp_path) -> N
                 ).status_code
                 == 201
             )
+            subcategory = client.post(
+                "/api/v1/subcategories",
+                headers=_headers(admin_token),
+                json={
+                    "category_id": str(seed.category.id),
+                    "code": "VPN",
+                    "name": "VPN",
+                },
+            )
+            assert subcategory.status_code == 201, subcategory.text
+            service = client.post(
+                "/api/v1/services",
+                headers=_headers(admin_token),
+                json={
+                    "subcategory_id": subcategory.json()["id"],
+                    "code": "REMOTE_VPN",
+                    "name": "Remote VPN",
+                },
+            )
+            assert service.status_code == 201, service.text
 
             created = client.post(
                 "/api/v1/tickets",
@@ -285,12 +333,37 @@ def test_permission_ownership_management_and_ticket_workflow_http(tmp_path) -> N
                     "title": "Network outage",
                     "description": "Network connection has been unavailable.",
                     "category_id": str(seed.category.id),
+                    "subcategory_id": subcategory.json()["id"],
+                    "service_id": service.json()["id"],
                     "priority_id": str(seed.priority.id),
                 },
             )
             assert created.status_code == 201, created.text
             ticket = created.json()
-            assert ticket["id"] and ticket["ticket_no"].startswith("IMS-")
+            assert ticket["id"] and ticket["ticket_no"].startswith("INC-")
+            page = client.get(
+                "/api/v1/tickets",
+                headers=_headers(customer_a_token),
+                params={"q": "outage", "limit": 10, "sort_by": "ticket_no"},
+            )
+            assert page.status_code == 200
+            assert page.json()["total"] == 1
+            assert page.json()["items"][0]["id"] == ticket["id"]
+            queue = client.get(
+                "/api/v1/tickets/queues/new", headers=_headers(agent_token)
+            )
+            assert queue.status_code == 200
+            assert queue.json()["total"] == 1
+            routed = client.post(
+                f"/api/v1/tickets/{ticket['id']}/assign-department",
+                headers=_headers(agent_token),
+                json={
+                    "department_id": department.json()["id"],
+                    "reason": "Route to operations",
+                },
+            )
+            assert routed.status_code == 200, routed.text
+            assert routed.json()["department_id"] == department.json()["id"]
             assert (
                 client.get(
                     f"/api/v1/tickets/{ticket['id']}",
@@ -311,6 +384,20 @@ def test_permission_ownership_management_and_ticket_workflow_http(tmp_path) -> N
                 json={"assignee_id": str(seed.agent.id)},
             )
             assert assigned.status_code == 200
+            assert (
+                client.post(
+                    f"/api/v1/tickets/{ticket['id']}/resolve",
+                    headers=_headers(agent_token),
+                ).status_code
+                == 409
+            )
+            assert (
+                client.post(
+                    f"/api/v1/tickets/{ticket['id']}/start",
+                    headers=_headers(agent_token),
+                ).status_code
+                == 200
+            )
             assert (
                 client.post(
                     f"/api/v1/tickets/{ticket['id']}/resolve",

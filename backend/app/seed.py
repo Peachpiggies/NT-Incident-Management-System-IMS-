@@ -12,7 +12,10 @@ from app.db.models import (
     RolePermission,
     TicketCategory,
     TicketPriority,
+    TicketService,
     TicketStatus,
+    TicketStatusTransition,
+    TicketSubcategory,
     User,
     UserRole,
 )
@@ -40,6 +43,8 @@ PERMISSIONS = [
     ("ticket", "delete"),
     ("ticket", "internal_note"),
     ("ticket", "assign"),
+    ("ticket", "start"),
+    ("ticket", "pending"),
     ("ticket", "escalate"),
     ("ticket", "receive_escalated"),
     ("ticket", "resolve"),
@@ -67,6 +72,8 @@ ROLE_PERMISSION_CODES = {
         "ticket.attachment_add",
         "ticket.update",
         "ticket.assign",
+        "ticket.start",
+        "ticket.pending",
         "ticket.escalate",
         "ticket.resolve",
         "ticket.close",
@@ -79,6 +86,8 @@ ROLE_PERMISSION_CODES = {
         "ticket.update",
         "ticket.internal_note",
         "ticket.receive_escalated",
+        "ticket.start",
+        "ticket.pending",
         "ticket.resolve",
         "ticket.close",
         "ticket.reopen",
@@ -153,6 +162,7 @@ async def seed_database() -> None:
                         )
                     )
 
+        categories = {}
         for code, name, color, sort_order in [
             ("NETWORK", "Network", "#2563EB", 10),
             ("EMAIL", "Email", "#7C3AED", 20),
@@ -163,7 +173,7 @@ async def seed_database() -> None:
             ("ACCOUNT", "Account", "#D97706", 70),
             ("HARDWARE", "Hardware", "#4B5563", 80),
         ]:
-            await _get_or_create(
+            categories[code] = await _get_or_create(
                 session,
                 TicketCategory,
                 code,
@@ -172,6 +182,95 @@ async def seed_database() -> None:
                 sort_order=sort_order,
                 is_active=True,
             )
+
+        subcategories = {}
+        for category_code, code, name, sort_order in [
+            ("NETWORK", "CONNECTIVITY", "Connectivity", 10),
+            ("NETWORK", "WIFI", "Wi-Fi", 20),
+            ("EMAIL", "OUTLOOK", "Outlook", 10),
+            ("EMAIL", "MAILBOX", "Mailbox", 20),
+            ("APPLICATION", "BUSINESS_APP", "Business Application", 10),
+            ("SERVER", "OPERATING_SYSTEM", "Operating System", 10),
+        ]:
+            existing = await session.scalar(
+                select(TicketSubcategory).where(
+                    TicketSubcategory.category_id == categories[category_code].id,
+                    TicketSubcategory.code == code,
+                )
+            )
+            if existing is None:
+                existing = TicketSubcategory(
+                    category_id=categories[category_code].id,
+                    code=code,
+                    name=name,
+                    sort_order=sort_order,
+                    is_active=True,
+                )
+                session.add(existing)
+                await session.flush()
+            subcategories[(category_code, code)] = existing
+
+        for category_code, subcategory_code, code, name, description in [
+            (
+                "NETWORK",
+                "CONNECTIVITY",
+                "LAN",
+                "LAN Connectivity",
+                "Wired network access",
+            ),
+            (
+                "NETWORK",
+                "WIFI",
+                "CORPORATE_WIFI",
+                "Corporate Wi-Fi",
+                "Corporate wireless access",
+            ),
+            (
+                "EMAIL",
+                "OUTLOOK",
+                "OUTLOOK_CLIENT",
+                "Outlook Client",
+                "Desktop Outlook support",
+            ),
+            (
+                "EMAIL",
+                "MAILBOX",
+                "MAILBOX_ACCESS",
+                "Mailbox Access",
+                "Mailbox access and permissions",
+            ),
+            (
+                "APPLICATION",
+                "BUSINESS_APP",
+                "ERP",
+                "ERP",
+                "Enterprise resource planning",
+            ),
+            (
+                "SERVER",
+                "OPERATING_SYSTEM",
+                "WINDOWS_SERVER",
+                "Windows Server",
+                "Windows server operations",
+            ),
+        ]:
+            subcategory = subcategories[(category_code, subcategory_code)]
+            existing = await session.scalar(
+                select(TicketService).where(
+                    TicketService.subcategory_id == subcategory.id,
+                    TicketService.code == code,
+                )
+            )
+            if existing is None:
+                session.add(
+                    TicketService(
+                        subcategory_id=subcategory.id,
+                        code=code,
+                        name=name,
+                        description=description,
+                        is_active=True,
+                    )
+                )
 
         for code, name, color, sla_minutes, sort_order in [
             ("CRITICAL", "Critical", "#DC2626", 60, 10),
@@ -190,16 +289,18 @@ async def seed_database() -> None:
                 is_active=True,
             )
 
+        statuses = {}
         for code, name, color, is_closed, sort_order in [
             ("NEW", "New", "#2563EB", False, 10),
             ("ASSIGNED", "Assigned", "#7C3AED", False, 20),
             ("IN_PROGRESS", "In Progress", "#D97706", False, 30),
             ("PENDING", "Pending", "#6B7280", False, 40),
+            ("ESCALATED", "Escalated", "#B45309", False, 45),
             ("RESOLVED", "Resolved", "#16A34A", False, 50),
             ("CLOSED", "Closed", "#374151", True, 60),
             ("CANCELLED", "Cancelled", "#991B1B", True, 70),
         ]:
-            await _get_or_create(
+            statuses[code] = await _get_or_create(
                 session,
                 TicketStatus,
                 code,
@@ -209,6 +310,35 @@ async def seed_database() -> None:
                 sort_order=sort_order,
                 is_active=True,
             )
+
+        for from_code, to_code, required_permission in [
+            ("NEW", "ASSIGNED", "ticket.assign"),
+            ("ASSIGNED", "IN_PROGRESS", "ticket.start"),
+            ("ASSIGNED", "ESCALATED", "ticket.escalate"),
+            ("IN_PROGRESS", "PENDING", "ticket.pending"),
+            ("PENDING", "IN_PROGRESS", "ticket.start"),
+            ("IN_PROGRESS", "ESCALATED", "ticket.escalate"),
+            ("ESCALATED", "IN_PROGRESS", "ticket.receive_escalated"),
+            ("IN_PROGRESS", "RESOLVED", "ticket.resolve"),
+            ("RESOLVED", "CLOSED", "ticket.close"),
+            ("RESOLVED", "ASSIGNED", "ticket.reopen"),
+            ("CLOSED", "ASSIGNED", "ticket.reopen"),
+        ]:
+            exists = await session.scalar(
+                select(TicketStatusTransition).where(
+                    TicketStatusTransition.from_status_id == statuses[from_code].id,
+                    TicketStatusTransition.to_status_id == statuses[to_code].id,
+                )
+            )
+            if exists is None:
+                session.add(
+                    TicketStatusTransition(
+                        from_status_id=statuses[from_code].id,
+                        to_status_id=statuses[to_code].id,
+                        required_permission=required_permission,
+                        is_active=True,
+                    )
+                )
 
         admin = await session.scalar(select(User).where(User.email == ADMIN_EMAIL))
         if not admin:

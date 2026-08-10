@@ -13,6 +13,7 @@ from app.api.v1.organization import router as organization_router
 from app.api.v1.permissions import router as permissions_router
 from app.api.v1.tickets import router as tickets_router
 from app.api.v1.users import router as users_router
+from app.api.v1.workflow import router as workflow_router
 from app.core.config import settings
 from app.db.session import engine
 
@@ -62,11 +63,19 @@ session endpoints and are never returned by session-listing APIs.
         },
         {
             "name": "Tickets",
-            "description": "UUID tickets backed by configurable category, priority, and status master data.",
+            "description": "UUID tickets, classification, workflow and department/user assignment. List responses are paginated.",
+        },
+        {
+            "name": "Categories",
+            "description": "Configurable Category → Subcategory → Service master data for ticket classification.",
+        },
+        {
+            "name": "Workflow",
+            "description": "Configuration of allowed ticket-status transitions.",
         },
         {
             "name": "Attachments",
-            "description": "Secure JPG, PNG, PDF, and DOCX ticket attachments.",
+            "description": "Secure JPG, PNG, PDF, DOCX, and XLSX ticket attachments.",
         },
     ],
     openapi_url="/api/v1/openapi.json",
@@ -90,4 +99,5 @@ app.include_router(notifications_router, prefix="/api/v1")
 app.include_router(organization_router, prefix="/api/v1")
 app.include_router(permissions_router, prefix="/api/v1")
 app.include_router(tickets_router, prefix="/api/v1")
+app.include_router(workflow_router, prefix="/api/v1")
 app.include_router(health_router, prefix="/api/v1")
