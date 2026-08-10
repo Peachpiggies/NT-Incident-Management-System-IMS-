@@ -1,8 +1,8 @@
 """
-Category schemas.
+Service schemas.
 
 This module contains all request/response schemas related to
-ticket categories (top level of the category -> subcategory ->
+ticket services (third level of the category -> subcategory ->
 service classification hierarchy).
 """
 
@@ -17,13 +17,13 @@ from pydantic import BaseModel, ConfigDict, Field
 # ==========================================================
 
 
-class CategoryBase(BaseModel):
-    """Shared category fields."""
+class ServiceBase(BaseModel):
+    """Shared service fields."""
 
+    subcategory_id: UUID
     code: str = Field(..., min_length=2, max_length=50, pattern=r"^[A-Z0-9_]+$")
     name: str = Field(..., min_length=3, max_length=100)
-    color: str | None = Field(None, max_length=20)
-    icon: str | None = Field(None, max_length=100)
+    description: str | None = Field(None, max_length=2000)
     sort_order: int = 0
     is_active: bool = True
 
@@ -33,17 +33,17 @@ class CategoryBase(BaseModel):
 # ==========================================================
 
 
-class CategoryCreate(CategoryBase):
-    """Create a category."""
+class ServiceCreate(ServiceBase):
+    """Create a service."""
 
 
-class CategoryUpdate(BaseModel):
-    """Update a category. All fields optional."""
+class ServiceUpdate(BaseModel):
+    """Update a service. All fields optional."""
 
+    subcategory_id: UUID | None = None
     code: str | None = Field(None, min_length=2, max_length=50, pattern=r"^[A-Z0-9_]+$")
     name: str | None = Field(None, min_length=3, max_length=100)
-    color: str | None = Field(None, max_length=20)
-    icon: str | None = Field(None, max_length=100)
+    description: str | None = Field(None, max_length=2000)
     sort_order: int | None = None
     is_active: bool | None = None
 
@@ -53,8 +53,8 @@ class CategoryUpdate(BaseModel):
 # ==========================================================
 
 
-class CategoryResponse(CategoryBase):
-    """Full category record."""
+class ServiceResponse(ServiceBase):
+    """Full service record."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -62,8 +62,8 @@ class CategoryResponse(CategoryBase):
     created_at: datetime
 
 
-class CategoryBrief(BaseModel):
-    """Lightweight category reference for nesting inside other schemas."""
+class ServiceBrief(BaseModel):
+    """Lightweight service reference for nesting inside other schemas."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -71,10 +71,10 @@ class CategoryBrief(BaseModel):
     name: str
 
 
-class CategoryListResponse(BaseModel):
-    """Paginated list of categories."""
+class ServiceListResponse(BaseModel):
+    """Paginated list of services."""
 
-    items: list[CategoryResponse]
+    items: list[ServiceResponse]
     total: int
     page: int
     page_size: int
