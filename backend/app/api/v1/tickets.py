@@ -15,6 +15,8 @@ from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.schemas.ticket import TicketCreate, TicketResponse, TicketUpdate
+
 from app.api.v1.dependencies import (
     get_current_user,
     require_permission,
@@ -22,6 +24,7 @@ from app.api.v1.dependencies import (
     ticket_read_scope,
     user_has_permission,
 )
+
 from app.db.models import (
     Department,
     Notification,
@@ -37,56 +40,12 @@ from app.db.models import (
     TicketSubcategory,
     User,
 )
+
 from app.db.session import get_db
 from app.services.assignment import AssignmentService
 from app.services.workflow import TicketWorkflowService, commit_ticket_transaction
 
 router = APIRouter(tags=["Tickets"])
-
-
-class TicketCreate(BaseModel):
-    title: str = Field(min_length=5, max_length=200)
-    description: str = Field(min_length=10)
-    category_id: UUID
-    subcategory_id: UUID | None = None
-    service_id: UUID | None = None
-    priority_id: UUID
-    department_id: UUID | None = None
-    source: str = Field(default="WEB", max_length=30)
-
-
-class TicketUpdate(BaseModel):
-    title: str | None = Field(default=None, min_length=5, max_length=200)
-    description: str | None = Field(default=None, min_length=10)
-    category_id: UUID | None = None
-    subcategory_id: UUID | None = None
-    service_id: UUID | None = None
-    priority_id: UUID | None = None
-    department_id: UUID | None = None
-    source: str | None = Field(default=None, min_length=2, max_length=30)
-
-
-class TicketResponse(BaseModel):
-    id: UUID
-    ticket_no: str
-    title: str
-    description: str
-    requester_id: UUID
-    department_id: UUID | None
-    category_id: UUID
-    subcategory_id: UUID | None
-    service_id: UUID | None
-    priority_id: UUID
-    status_id: UUID
-    assigned_to: UUID | None
-    source: str
-    due_at: datetime | None
-    resolved_at: datetime | None
-    closed_at: datetime | None
-    created_at: datetime
-    updated_at: datetime
-
-    model_config = ConfigDict(from_attributes=True)
 
 
 class TicketAssigneeRequest(BaseModel):
@@ -863,7 +822,9 @@ async def edit_ticket_comment(
 
 
 @router.delete(
-    "/tickets/{ticket_id}/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT
+    "/tickets/{ticket_id}/comments/{comment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
 )
 async def delete_ticket_comment(
     ticket_id: UUID,

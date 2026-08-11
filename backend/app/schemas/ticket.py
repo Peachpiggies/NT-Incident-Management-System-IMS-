@@ -29,9 +29,15 @@ class TicketBase(BaseModel):
 
     category_id: UUID
 
+    subcategory_id: UUID | None = None
+
+    service_id: UUID | None = None
+
     priority_id: UUID
 
-    department_id: UUID
+    department_id: UUID | None = None
+
+    source: str = Field(..., min_length=2, max_length=50)
 
 
 # ==========================================================
@@ -56,9 +62,15 @@ class TicketUpdate(BaseModel):
 
     category_id: UUID | None = None
 
+    subcategory_id: UUID | None = None
+
+    service_id: UUID | None = None
+
     priority_id: UUID | None = None
 
     department_id: UUID | None = None
+
+    source: str | None = Field(default=None, min_length=2, max_length=50)
 
 
 # ==========================================================
@@ -126,7 +138,7 @@ class TicketSummary(BaseModel):
 
     id: UUID
 
-    ticket_number: str
+    ticket_no: str
 
     title: str
 
@@ -152,7 +164,7 @@ class TicketDetail(BaseModel):
 
     id: UUID
 
-    ticket_number: str
+    ticket_no: str
 
     title: str
 
@@ -183,14 +195,13 @@ class TicketDetail(BaseModel):
 # Response
 # ==========================================================
 
+# NOTE: `TicketResponse` intentionally has no `success`/`message`/`data`
+# envelope. Every endpoint in `app.api.v1.tickets` returns the `Ticket`
+# ORM object directly (e.g. `create_ticket() -> Ticket: ... return ticket`)
+# and `TicketPage.items` is typed as `list[TicketResponse]`, so this needs
+# to be the flat ticket-detail shape, not a wrapper around it.
 
-class TicketResponse(BaseModel):
-
-    success: bool = True
-
-    message: str
-
-    data: TicketDetail
+TicketResponse = TicketDetail
 
 
 class TicketListResponse(BaseModel):
