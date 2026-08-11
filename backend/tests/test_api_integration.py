@@ -135,6 +135,8 @@ async def _create_harness(
                 customer_role,
                 agent_role,
                 *permissions,
+                customer_department,
+                operations,
                 admin,
                 customer_a,
                 customer_b,
