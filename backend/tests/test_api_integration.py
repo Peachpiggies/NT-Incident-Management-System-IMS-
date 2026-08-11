@@ -33,6 +33,8 @@ class Seed:
     agent: User
     category: TicketCategory
     priority: TicketPriority
+    customer_department: Department
+    operations: Department
 
 
 async def _create_harness(
@@ -130,22 +132,22 @@ async def _create_harness(
             ]
         ]
         db.add_all(
-            [
-                admin_role,
-                customer_role,
-                agent_role,
-                *permissions,
-                customer_department,
-                operations,
-                admin,
-                customer_a,
-                customer_b,
-                agent,
-                category,
-                priority,
-                *statuses,
-            ]
-        )
+    [
+        admin_role,
+        customer_role,
+        agent_role,
+        *permissions,
+        customer_department,
+        operations,
+        admin,
+        customer_a,
+        customer_b,
+        agent,
+        category,
+        priority,
+        *statuses,
+    ]
+)
         await db.flush()
         db.add_all(
             [
@@ -301,8 +303,9 @@ def test_permission_ownership_management_and_ticket_workflow_http(tmp_path) -> N
             department = client.post(
                 "/api/v1/departments",
                 headers=_headers(admin_token),
-                json={"code": "OPS", "name": "Operations"},
+                json={"code": "TECH", "name": "Technical Support"},
             )
+
             assert department.status_code == 201
             role = client.post(
                 "/api/v1/roles",
