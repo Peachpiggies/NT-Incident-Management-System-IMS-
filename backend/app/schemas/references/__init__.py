@@ -8,8 +8,6 @@ priorities, statuses, categories).
 
 from app.schemas.references.category import (
 
-    CategoryBrief,
-
     CategoryCreate,
 
     CategoryListResponse,
@@ -22,8 +20,6 @@ from app.schemas.references.category import (
 
 from app.schemas.references.department import (
 
-    DepartmentBrief,
-
     DepartmentCreate,
 
     DepartmentListResponse,
@@ -35,8 +31,6 @@ from app.schemas.references.department import (
 )
 
 from app.schemas.references.priority import (
-
-    PriorityBrief,
 
     PriorityCreate,
 
@@ -64,8 +58,6 @@ from app.schemas.references.role import (
 
 from app.schemas.references.service import (
 
-    ServiceBase,
-
     ServiceBrief,
 
     ServiceCreate,
@@ -80,8 +72,6 @@ from app.schemas.references.service import (
 
 from app.schemas.references.status import (
 
-    StatusBrief,
-
     StatusCreate,
 
     StatusListResponse,
@@ -93,8 +83,6 @@ from app.schemas.references.status import (
 )
 
 from app.schemas.references.subcategory import (
-
-    SubcategoryBase,
 
     SubcategoryBrief,
 
@@ -123,63 +111,57 @@ from app.schemas.references.user import (
 )
 
 __all__ = [
-
+    
     # category
-    "CategoryBrief",
     "CategoryCreate",
     "CategoryListResponse",
     "CategoryResponse",
     "CategoryUpdate",
-
+    
     # department
-    "DepartmentBrief",
     "DepartmentCreate",
     "DepartmentListResponse",
     "DepartmentResponse",
     "DepartmentUpdate",
-
+    
     # priority
-    "PriorityBrief",
     "PriorityCreate",
     "PriorityListResponse",
     "PriorityResponse",
     "PriorityUpdate",
-
+    
     # role
     "RoleBrief",
     "RoleCreate",
     "RoleListResponse",
     "RoleResponse",
     "RoleUpdate",
-
+    
     # service
-    "ServiceBase",
     "ServiceBrief",
     "ServiceCreate",
     "ServiceListResponse",
     "ServiceResponse",
     "ServiceUpdate",
-
+    
     # status
-    "StatusBrief",
     "StatusCreate",
     "StatusListResponse",
     "StatusResponse",
     "StatusUpdate",
-
+    
     # subcategory
-    "SubcategoryBase",
     "SubcategoryBrief",
     "SubcategoryCreate",
     "SubcategoryListResponse",
     "SubcategoryResponse",
     "SubcategoryUpdate",
-
+    
     # user
     "UserBrief",
     "UserCreate",
     "UserListResponse",
     "UserResponse",
     "UserUpdate",
-
+    
 ]

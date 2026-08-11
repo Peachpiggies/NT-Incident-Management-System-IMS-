@@ -5,6 +5,20 @@ Re-exports all request/response schemas so they can be imported
 directly from `app.schemas` instead of the individual submodules.
 """
 
+from app.schemas.attachments import (
+
+    AttachmentBase,
+
+    AttachmentListResponse,
+
+    AttachmentResponse,
+
+    AttachmentSummary,
+
+    AttachmentUpload,
+
+)
+
 from app.schemas.auth import (
 
     ChangePasswordRequest,
@@ -30,6 +44,22 @@ from app.schemas.auth import (
     Token,
 
     TokenPayload,
+
+)
+
+from app.schemas.comment import (
+
+    CommentAuthor,
+
+    CommentBase,
+
+    CommentCreate,
+
+    CommentListResponse,
+
+    CommentResponse,
+
+    CommentUpdate,
 
 )
 
@@ -71,6 +101,13 @@ from app.schemas.notification import (
 
 __all__ = [
 
+    # attachments
+    "AttachmentBase",
+    "AttachmentListResponse",
+    "AttachmentResponse",
+    "AttachmentSummary",
+    "AttachmentUpload",
+
     # auth
     "ChangePasswordRequest",
     "CurrentUser",
@@ -84,6 +121,14 @@ __all__ = [
     "SessionResponse",
     "Token",
     "TokenPayload",
+
+    # comment
+    "CommentAuthor",
+    "CommentBase",
+    "CommentCreate",
+    "CommentListResponse",
+    "CommentResponse",
+    "CommentUpdate",
 
     # dashboard
     "ChartDataPoint",

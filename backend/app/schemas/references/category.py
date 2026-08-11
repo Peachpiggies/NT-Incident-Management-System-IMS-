@@ -62,15 +62,6 @@ class CategoryResponse(CategoryBase):
     created_at: datetime
 
 
-class CategoryBrief(BaseModel):
-    """Lightweight category reference for nesting inside other schemas."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: UUID
-    name: str
-
-
 class CategoryListResponse(BaseModel):
     """Paginated list of categories."""
 

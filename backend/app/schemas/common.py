@@ -103,6 +103,46 @@ class UserSummary(ORMModel):
 
 
 # ==========================================================
+# Shared Reference Summaries
+# ==========================================================
+
+
+class CategorySummary(ORMModel):
+    """Lightweight category reference for nested display (e.g. on a ticket)."""
+
+    id: UUID
+    code: str
+    name: str
+    color: str | None = None
+    icon: str | None = None
+
+
+class DepartmentSummary(ORMModel):
+    """Lightweight department reference for nested display."""
+
+    id: UUID
+    name: str
+
+
+class PrioritySummary(ORMModel):
+    """Lightweight priority reference for nested display."""
+
+    id: UUID
+    name: str
+    level: int
+    color: str | None = None
+
+
+class StatusSummary(ORMModel):
+    """Lightweight status reference for nested display."""
+
+    id: UUID
+    name: str
+    color: str | None = None
+    is_closed: bool = False
+
+
+# ==========================================================
 # Health Check
 # ==========================================================
 
