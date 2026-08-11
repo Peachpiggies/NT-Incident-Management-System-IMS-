@@ -1,74 +1,23 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_current_user, require_permission
 from app.db.models import TicketCategory, TicketService, TicketSubcategory, User
 from app.db.session import get_db
+from app.schemas.references.category import CategoryCreate, CategoryResponse
+from app.schemas.references.service import ServiceCreate, ServiceResponse
+from app.schemas.references.subcategory import SubcategoryCreate, SubcategoryResponse
 
 router = APIRouter(tags=["Categories"])
 
 
-class CategoryResponse(BaseModel):
-    id: UUID
-    code: str
-    name: str
-    color: str | None
-    icon: str | None
-    sort_order: int
-    is_active: bool
-    model_config = ConfigDict(from_attributes=True)
-
-
-class CategoryRequest(BaseModel):
-    code: str = Field(..., min_length=2, max_length=50, pattern=r"^[A-Z0-9_]+$")
-    name: str = Field(..., min_length=3, max_length=100)
-    color: str | None = Field(None, max_length=20)
-    icon: str | None = Field(None, max_length=100)
-    sort_order: int = 0
-    is_active: bool = True
-
-
-class SubcategoryResponse(BaseModel):
-    id: UUID
-    category_id: UUID
-    code: str
-    name: str
-    sort_order: int
-    is_active: bool
-    model_config = ConfigDict(from_attributes=True)
-
-
-class SubcategoryRequest(BaseModel):
-    category_id: UUID
-    code: str = Field(..., min_length=2, max_length=50, pattern=r"^[A-Z0-9_]+$")
-    name: str = Field(..., min_length=3, max_length=100)
-    sort_order: int = 0
-    is_active: bool = True
-
-
-class ServiceResponse(BaseModel):
-    id: UUID
-    subcategory_id: UUID
-    code: str
-    name: str
-    description: str | None
-    sort_order: int
-    is_active: bool
-    model_config = ConfigDict(from_attributes=True)
-
-
-class ServiceRequest(BaseModel):
-    subcategory_id: UUID
-    code: str = Field(..., min_length=2, max_length=50, pattern=r"^[A-Z0-9_]+$")
-    name: str = Field(..., min_length=3, max_length=100)
-    description: str | None = Field(None, max_length=2000)
-    sort_order: int = 0
-    is_active: bool = True
+# ==========================================================
+# Helpers
+# ==========================================================
 
 
 async def _active_parent_or_400(db: AsyncSession, model, record_id: UUID, label: str):
@@ -93,6 +42,41 @@ async def _soft_delete(model, record_id: UUID, current_user: User, db: AsyncSess
     await db.commit()
 
 
+async def _assert_code_available(
+    db: AsyncSession,
+    model,
+    code: str,
+    *,
+    exclude_id: UUID | None = None,
+    scope_field: str | None = None,
+    scope_value: UUID | None = None,
+    label: str,
+) -> None:
+    """
+    Raise 409 if another non-deleted record already uses this code.
+
+    Soft-deleted records never block reuse of their code. `scope_field` /
+    `scope_value` restrict the uniqueness check to siblings under the same
+    parent (e.g. code unique per category for subcategories).
+    """
+
+    conditions = [model.code == code, model.is_deleted.is_(False)]
+
+    if scope_field is not None:
+        conditions.append(getattr(model, scope_field) == scope_value)
+
+    if exclude_id is not None:
+        conditions.append(model.id != exclude_id)
+
+    if await db.scalar(select(model).where(*conditions)):
+        raise HTTPException(status_code=409, detail=f"{label} code already exists")
+
+
+# ==========================================================
+# Categories
+# ==========================================================
+
+
 @router.get("/categories", response_model=list[CategoryResponse])
 async def list_categories(
     current_user: Annotated[User, Depends(get_current_user)],
@@ -113,14 +97,11 @@ async def list_categories(
     "/categories", response_model=CategoryResponse, status_code=status.HTTP_201_CREATED
 )
 async def create_category(
-    payload: CategoryRequest,
+    payload: CategoryCreate,
     current_user: Annotated[User, Depends(require_permission("configuration.manage"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> TicketCategory:
-    if await db.scalar(
-        select(TicketCategory).where(TicketCategory.code == payload.code)
-    ):
-        raise HTTPException(status_code=409, detail="Category code already exists")
+    await _assert_code_available(db, TicketCategory, payload.code, label="Category")
     category = TicketCategory(**payload.model_dump(), created_by=current_user.id)
     db.add(category)
     await db.commit()
@@ -131,13 +112,16 @@ async def create_category(
 @router.put("/categories/{category_id}", response_model=CategoryResponse)
 async def update_category(
     category_id: UUID,
-    payload: CategoryRequest,
+    payload: CategoryCreate,
     current_user: Annotated[User, Depends(require_permission("configuration.manage"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> TicketCategory:
     category = await db.get(TicketCategory, category_id)
     if not category or category.is_deleted:
         raise HTTPException(status_code=404, detail="Category not found")
+    await _assert_code_available(
+        db, TicketCategory, payload.code, exclude_id=category_id, label="Category"
+    )
     for key, value in payload.model_dump().items():
         setattr(category, key, value)
     category.updated_by = current_user.id
@@ -146,7 +130,11 @@ async def update_category(
     return category
 
 
-@router.delete("/categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/categories/{category_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
 async def delete_category(
     category_id: UUID,
     current_user: Annotated[User, Depends(require_permission("configuration.manage"))],
@@ -155,12 +143,17 @@ async def delete_category(
     await _soft_delete(TicketCategory, category_id, current_user, db, "Category")
 
 
+# ==========================================================
+# Subcategories
+# ==========================================================
+
+
 @router.get("/subcategories", response_model=list[SubcategoryResponse])
 async def list_subcategories(
-    category_id: UUID | None = None,
-    include_inactive: bool = False,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    category_id: Annotated[UUID | None, Query()] = None,
+    include_inactive: Annotated[bool, Query()] = False,
 ) -> list[TicketSubcategory]:
     conditions = [TicketSubcategory.is_deleted.is_(False)]
     if category_id:
@@ -168,25 +161,35 @@ async def list_subcategories(
     if not include_inactive:
         conditions.append(TicketSubcategory.is_active.is_(True))
     return list(
-        (await db.scalars(select(TicketSubcategory).where(*conditions).order_by(
-            TicketSubcategory.sort_order, TicketSubcategory.name
-        ))).all()
+        (
+            await db.scalars(
+                select(TicketSubcategory)
+                .where(*conditions)
+                .order_by(TicketSubcategory.sort_order, TicketSubcategory.name)
+            )
+        ).all()
     )
 
 
-@router.post("/subcategories", response_model=SubcategoryResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/subcategories",
+    response_model=SubcategoryResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_subcategory(
-    payload: SubcategoryRequest,
+    payload: SubcategoryCreate,
     current_user: Annotated[User, Depends(require_permission("configuration.manage"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> TicketSubcategory:
     await _active_parent_or_400(db, TicketCategory, payload.category_id, "category")
-    exists = await db.scalar(select(TicketSubcategory).where(
-        TicketSubcategory.category_id == payload.category_id,
-        TicketSubcategory.code == payload.code,
-    ))
-    if exists:
-        raise HTTPException(status_code=409, detail="Subcategory code already exists in this category")
+    await _assert_code_available(
+        db,
+        TicketSubcategory,
+        payload.code,
+        scope_field="category_id",
+        scope_value=payload.category_id,
+        label="Subcategory",
+    )
     record = TicketSubcategory(**payload.model_dump(), created_by=current_user.id)
     db.add(record)
     await db.commit()
@@ -197,7 +200,7 @@ async def create_subcategory(
 @router.put("/subcategories/{subcategory_id}", response_model=SubcategoryResponse)
 async def update_subcategory(
     subcategory_id: UUID,
-    payload: SubcategoryRequest,
+    payload: SubcategoryCreate,
     current_user: Annotated[User, Depends(require_permission("configuration.manage"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> TicketSubcategory:
@@ -205,6 +208,15 @@ async def update_subcategory(
     if record is None or record.is_deleted:
         raise HTTPException(status_code=404, detail="Subcategory not found")
     await _active_parent_or_400(db, TicketCategory, payload.category_id, "category")
+    await _assert_code_available(
+        db,
+        TicketSubcategory,
+        payload.code,
+        exclude_id=subcategory_id,
+        scope_field="category_id",
+        scope_value=payload.category_id,
+        label="Subcategory",
+    )
     for key, value in payload.model_dump().items():
         setattr(record, key, value)
     record.updated_by = current_user.id
@@ -213,7 +225,11 @@ async def update_subcategory(
     return record
 
 
-@router.delete("/subcategories/{subcategory_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/subcategories/{subcategory_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
 async def delete_subcategory(
     subcategory_id: UUID,
     current_user: Annotated[User, Depends(require_permission("configuration.manage"))],
@@ -222,36 +238,51 @@ async def delete_subcategory(
     await _soft_delete(TicketSubcategory, subcategory_id, current_user, db, "Subcategory")
 
 
+# ==========================================================
+# Services
+# ==========================================================
+
+
 @router.get("/services", response_model=list[ServiceResponse])
 async def list_services(
-    subcategory_id: UUID | None = None,
-    include_inactive: bool = False,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    subcategory_id: Annotated[UUID | None, Query()] = None,
+    include_inactive: Annotated[bool, Query()] = False,
 ) -> list[TicketService]:
     conditions = [TicketService.is_deleted.is_(False)]
     if subcategory_id:
         conditions.append(TicketService.subcategory_id == subcategory_id)
     if not include_inactive:
         conditions.append(TicketService.is_active.is_(True))
-    return list((await db.scalars(select(TicketService).where(*conditions).order_by(
-        TicketService.sort_order, TicketService.name
-    ))).all())
+    return list(
+        (
+            await db.scalars(
+                select(TicketService)
+                .where(*conditions)
+                .order_by(TicketService.sort_order, TicketService.name)
+            )
+        ).all()
+    )
 
 
-@router.post("/services", response_model=ServiceResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/services", response_model=ServiceResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_service(
-    payload: ServiceRequest,
+    payload: ServiceCreate,
     current_user: Annotated[User, Depends(require_permission("configuration.manage"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> TicketService:
     await _active_parent_or_400(db, TicketSubcategory, payload.subcategory_id, "subcategory")
-    exists = await db.scalar(select(TicketService).where(
-        TicketService.subcategory_id == payload.subcategory_id,
-        TicketService.code == payload.code,
-    ))
-    if exists:
-        raise HTTPException(status_code=409, detail="Service code already exists in this subcategory")
+    await _assert_code_available(
+        db,
+        TicketService,
+        payload.code,
+        scope_field="subcategory_id",
+        scope_value=payload.subcategory_id,
+        label="Service",
+    )
     record = TicketService(**payload.model_dump(), created_by=current_user.id)
     db.add(record)
     await db.commit()
@@ -262,7 +293,7 @@ async def create_service(
 @router.put("/services/{service_id}", response_model=ServiceResponse)
 async def update_service(
     service_id: UUID,
-    payload: ServiceRequest,
+    payload: ServiceCreate,
     current_user: Annotated[User, Depends(require_permission("configuration.manage"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> TicketService:
@@ -270,6 +301,15 @@ async def update_service(
     if record is None or record.is_deleted:
         raise HTTPException(status_code=404, detail="Service not found")
     await _active_parent_or_400(db, TicketSubcategory, payload.subcategory_id, "subcategory")
+    await _assert_code_available(
+        db,
+        TicketService,
+        payload.code,
+        exclude_id=service_id,
+        scope_field="subcategory_id",
+        scope_value=payload.subcategory_id,
+        label="Service",
+    )
     for key, value in payload.model_dump().items():
         setattr(record, key, value)
     record.updated_by = current_user.id
@@ -278,7 +318,11 @@ async def update_service(
     return record
 
 
-@router.delete("/services/{service_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/services/{service_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
 async def delete_service(
     service_id: UUID,
     current_user: Annotated[User, Depends(require_permission("configuration.manage"))],

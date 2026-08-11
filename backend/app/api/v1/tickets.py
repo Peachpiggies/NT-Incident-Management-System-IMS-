@@ -14,6 +14,9 @@ from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.schemas.ticket import TicketCreate, TicketResponse, TicketUpdate
 
 from app.api.v1.dependencies import (
     get_current_user,
@@ -22,6 +25,7 @@ from app.api.v1.dependencies import (
     ticket_read_scope,
     user_has_permission,
 )
+
 from app.db.models import (
     Department,
     Notification,
@@ -37,56 +41,12 @@ from app.db.models import (
     TicketSubcategory,
     User,
 )
+
 from app.db.session import get_db
 from app.services.assignment import AssignmentService
 from app.services.workflow import TicketWorkflowService, commit_ticket_transaction
 
 router = APIRouter(tags=["Tickets"])
-
-
-class TicketCreate(BaseModel):
-    title: str = Field(min_length=5, max_length=200)
-    description: str = Field(min_length=10)
-    category_id: UUID
-    subcategory_id: UUID | None = None
-    service_id: UUID | None = None
-    priority_id: UUID
-    department_id: UUID | None = None
-    source: str = Field(default="WEB", max_length=30)
-
-
-class TicketUpdate(BaseModel):
-    title: str | None = Field(default=None, min_length=5, max_length=200)
-    description: str | None = Field(default=None, min_length=10)
-    category_id: UUID | None = None
-    subcategory_id: UUID | None = None
-    service_id: UUID | None = None
-    priority_id: UUID | None = None
-    department_id: UUID | None = None
-    source: str | None = Field(default=None, min_length=2, max_length=30)
-
-
-class TicketResponse(BaseModel):
-    id: UUID
-    ticket_no: str
-    title: str
-    description: str
-    requester_id: UUID
-    department_id: UUID | None
-    category_id: UUID
-    subcategory_id: UUID | None
-    service_id: UUID | None
-    priority_id: UUID
-    status_id: UUID
-    assigned_to: UUID | None
-    source: str
-    due_at: datetime | None
-    resolved_at: datetime | None
-    closed_at: datetime | None
-    created_at: datetime
-    updated_at: datetime
-
-    model_config = ConfigDict(from_attributes=True)
 
 
 class TicketAssigneeRequest(BaseModel):
@@ -155,13 +115,51 @@ QUEUE_STATUS_CODES = {
 
 async def _get_ticket_or_404(ticket_id: UUID, db: AsyncSession) -> Ticket:
     ticket = await db.scalar(
-        select(Ticket).where(Ticket.id == ticket_id, Ticket.is_deleted.is_(False))
+        select(Ticket)
+        .where(Ticket.id == ticket_id, Ticket.is_deleted.is_(False))
+        .options(
+            selectinload(Ticket.requester),
+            selectinload(Ticket.assignee),
+            selectinload(Ticket.department),
+            selectinload(Ticket.category),
+            selectinload(Ticket.priority),
+            selectinload(Ticket.status),
+        )
     )
     if ticket is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found"
         )
     return ticket
+
+
+# Relationships needed to serialize a `Ticket` as `TicketDetail`/`TicketResponse`.
+_TICKET_DETAIL_RELATIONSHIPS = (
+    "requester",
+    "assignee",
+    "department",
+    "category",
+    "priority",
+    "status",
+)
+
+
+async def _refresh_ticket_detail(db: AsyncSession, ticket: Ticket) -> None:
+    """
+    Refresh a ticket after a write and eagerly reload every relationship
+    needed to serialize it as `TicketDetail`/`TicketResponse`.
+
+    A bare `db.refresh(ticket)` only reloads column attributes. Without this,
+    the response serializer tries to lazy-load `department`/`category`/
+    `priority`/`status`/`requester`/`assignee` outside of the session's async
+    context and raises `MissingGreenlet`. Refreshing columns first (so any
+    just-changed foreign key, e.g. a new `status_id`, is current) and then
+    explicitly reloading the relationships also avoids returning a stale,
+    previously-loaded relationship object.
+    """
+
+    await db.refresh(ticket)
+    await db.refresh(ticket, attribute_names=list(_TICKET_DETAIL_RELATIONSHIPS))
 
 
 async def _active_master_or_400(db: AsyncSession, model, record_id: UUID, label: str):
@@ -276,7 +274,17 @@ async def _ticket_page(
     sort_order: Literal["asc", "desc"],
 ) -> TicketPage:
     conditions = [Ticket.is_deleted.is_(False)]
-    statement = select(Ticket)
+    statement = (
+    select(Ticket)
+        .options(
+            selectinload(Ticket.requester),
+            selectinload(Ticket.assignee),
+            selectinload(Ticket.department),
+            selectinload(Ticket.category),
+            selectinload(Ticket.priority),
+            selectinload(Ticket.status),
+        )
+    )
     count_statement = select(func.count()).select_from(Ticket)
     if status_code:
         statement = statement.join(TicketStatus, Ticket.status_id == TicketStatus.id)
@@ -479,7 +487,7 @@ async def create_ticket(
         )
     )
     await commit_ticket_transaction(db)
-    await db.refresh(ticket)
+    await _refresh_ticket_detail(db, ticket)
     return ticket
 
 
@@ -541,7 +549,7 @@ async def update_ticket(
             )
     ticket.updated_by = current_user.id
     await commit_ticket_transaction(db)
-    await db.refresh(ticket)
+    await _refresh_ticket_detail(db, ticket)
     return ticket
 
 
@@ -863,7 +871,9 @@ async def edit_ticket_comment(
 
 
 @router.delete(
-    "/tickets/{ticket_id}/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT
+    "/tickets/{ticket_id}/comments/{comment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
 )
 async def delete_ticket_comment(
     ticket_id: UUID,
@@ -926,7 +936,7 @@ async def assign_ticket(
         )
     )
     await commit_ticket_transaction(db)
-    await db.refresh(ticket)
+    await _refresh_ticket_detail(db, ticket)
     return ticket
 
 
@@ -951,7 +961,7 @@ async def assign_ticket_department(
         )
     )
     await commit_ticket_transaction(db)
-    await db.refresh(ticket)
+    await _refresh_ticket_detail(db, ticket)
     return ticket
 
 
@@ -966,7 +976,7 @@ async def start_ticket(
         ticket, "IN_PROGRESS", current_user, action="ticket.start"
     )
     await commit_ticket_transaction(db)
-    await db.refresh(ticket)
+    await _refresh_ticket_detail(db, ticket)
     return ticket
 
 
@@ -981,7 +991,7 @@ async def pending_ticket(
         ticket, "PENDING", current_user, action="ticket.pending"
     )
     await commit_ticket_transaction(db)
-    await db.refresh(ticket)
+    await _refresh_ticket_detail(db, ticket)
     return ticket
 
 
@@ -1000,7 +1010,7 @@ async def escalate_ticket(
         remark="Escalated for Tier 2 handling",
     )
     await commit_ticket_transaction(db)
-    await db.refresh(ticket)
+    await _refresh_ticket_detail(db, ticket)
     return ticket
 
 
@@ -1027,7 +1037,7 @@ async def receive_escalated_ticket(
         )
     )
     await commit_ticket_transaction(db)
-    await db.refresh(ticket)
+    await _refresh_ticket_detail(db, ticket)
     return ticket
 
 
@@ -1052,7 +1062,7 @@ async def resolve_ticket(
         )
     )
     await commit_ticket_transaction(db)
-    await db.refresh(ticket)
+    await _refresh_ticket_detail(db, ticket)
     return ticket
 
 
@@ -1077,7 +1087,7 @@ async def close_ticket(
         )
     )
     await commit_ticket_transaction(db)
-    await db.refresh(ticket)
+    await _refresh_ticket_detail(db, ticket)
     return ticket
 
 
@@ -1106,5 +1116,5 @@ async def reopen_ticket(
         )
     )
     await commit_ticket_transaction(db)
-    await db.refresh(ticket)
+    await _refresh_ticket_detail(db, ticket)
     return ticket

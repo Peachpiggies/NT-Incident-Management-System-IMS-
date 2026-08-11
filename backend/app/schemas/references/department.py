@@ -53,15 +53,6 @@ class DepartmentResponse(DepartmentBase):
     created_at: datetime
 
 
-class DepartmentBrief(BaseModel):
-    """Lightweight department reference for nesting inside other schemas."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: UUID
-    name: str
-
-
 class DepartmentListResponse(BaseModel):
     """Paginated list of departments."""
 

@@ -5,6 +5,7 @@ This module contains all request/response schemas related to
 authentication and authorization.
 """
 
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -60,7 +61,13 @@ class RegisterRequest(BaseModel):
 
     full_name: str = Field(..., min_length=2, max_length=255)
     email: EmailStr
-    password: str = Field(..., min_length=8, max_length=128)
+    username: str | None = Field(
+        None,
+        min_length=3,
+        max_length=50,
+        description="Optional; defaults to the local part of the email if omitted",
+    )
+    password: str = Field(..., min_length=12, max_length=128)
     department_id: UUID | None = None
 
 
@@ -84,7 +91,7 @@ class ChangePasswordRequest(BaseModel):
     """Change current password."""
 
     current_password: str
-    new_password: str = Field(..., min_length=8, max_length=128)
+    new_password: str = Field(..., min_length=12, max_length=128)
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -128,3 +135,20 @@ Logout
 class LogoutRequest(BaseModel):
     refresh_token: str
 
+
+'''=========================================================
+Session Response
+========================================================='''
+
+
+class SessionResponse(BaseModel):
+    session_id: UUID
+    ip: str | None
+    device: str | None
+    browser: str | None
+    user_agent: str | None
+    created_at: datetime
+    last_used_at: datetime
+    expires_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

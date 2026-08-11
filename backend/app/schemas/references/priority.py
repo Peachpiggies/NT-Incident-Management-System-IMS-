@@ -55,17 +55,6 @@ class PriorityResponse(PriorityBase):
     created_at: datetime
 
 
-class PriorityBrief(BaseModel):
-    """Lightweight priority reference for nesting inside other schemas."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: UUID
-    name: str
-    level: int
-    color: str | None = None
-
-
 class PriorityListResponse(BaseModel):
     """Paginated list of priority levels."""
 

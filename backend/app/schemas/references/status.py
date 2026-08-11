@@ -59,17 +59,6 @@ class StatusResponse(StatusBase):
     created_at: datetime
 
 
-class StatusBrief(BaseModel):
-    """Lightweight status reference for nesting inside other schemas."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: UUID
-    name: str
-    is_closed: bool = False
-    color: str | None = None
-
-
 class StatusListResponse(BaseModel):
     """Paginated list of statuses."""
 

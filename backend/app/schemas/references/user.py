@@ -11,7 +11,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from app.schemas.references.department import DepartmentBrief
+from app.schemas.common import DepartmentSummary
 from app.schemas.references.role import RoleBrief
 
 
@@ -65,7 +65,7 @@ class UserResponse(BaseModel):
     full_name: str
     email: EmailStr
     role: RoleBrief | None = None
-    department: DepartmentBrief | None = None
+    department: DepartmentSummary | None = None
     is_active: bool
     created_at: datetime
 

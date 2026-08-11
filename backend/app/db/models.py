@@ -344,6 +344,11 @@ class Ticket(BaseModel):
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     requester: Mapped[User] = relationship(foreign_keys=[requester_id])
     assignee: Mapped[User | None] = relationship(foreign_keys=[assigned_to])
+
+    @property
+    def reporter(self) -> User:
+        """API-facing alias for the ticket requester."""
+        return self.requester
     department: Mapped[Department | None] = relationship(foreign_keys=[department_id])
     category: Mapped[TicketCategory] = relationship(back_populates="tickets")
     subcategory: Mapped[TicketSubcategory | None] = relationship(

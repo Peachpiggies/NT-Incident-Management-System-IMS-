@@ -7,6 +7,7 @@ from app.api.v1.dependencies import get_db
 from app.core.security import hash_password
 from app.db.models import (
     Base,
+    Department,
     Permission,
     Role,
     RolePermission,
@@ -32,6 +33,8 @@ class Seed:
     agent: User
     category: TicketCategory
     priority: TicketPriority
+    customer_department: Department
+    operations: Department
 
 
 async def _create_harness(
@@ -70,12 +73,24 @@ async def _create_harness(
                 code="configuration.manage",
             ),
         ]
+
+        customer_department = Department(
+            code="CUSTOMER",
+            name="Customer Services",
+        )
+
+        operations = Department(
+            code="OPS",
+            name="Operations",
+        )
+
         admin = User(
             username="admin",
             email="admin@example.com",
             first_name="Admin",
             last_name="User",
             password_hash=hash_password(PASSWORD),
+            department = None,
         )
         customer_a = User(
             username="customer-a",
@@ -83,6 +98,7 @@ async def _create_harness(
             first_name="Customer",
             last_name="A",
             password_hash=hash_password(PASSWORD),
+            department = customer_department,
         )
         customer_b = User(
             username="customer-b",
@@ -90,6 +106,7 @@ async def _create_harness(
             first_name="Customer",
             last_name="B",
             password_hash=hash_password(PASSWORD),
+            department = customer_department,
         )
         agent = User(
             username="agent",
@@ -97,6 +114,7 @@ async def _create_harness(
             first_name="Agent",
             last_name="User",
             password_hash=hash_password(PASSWORD),
+            department = operations,
         )
         category = TicketCategory(code="NETWORK", name="Network", is_active=True)
         priority = TicketPriority(code="HIGH", name="High", is_active=True)
@@ -114,20 +132,22 @@ async def _create_harness(
             ]
         ]
         db.add_all(
-            [
-                admin_role,
-                customer_role,
-                agent_role,
-                *permissions,
-                admin,
-                customer_a,
-                customer_b,
-                agent,
-                category,
-                priority,
-                *statuses,
-            ]
-        )
+    [
+        admin_role,
+        customer_role,
+        agent_role,
+        *permissions,
+        customer_department,
+        operations,
+        admin,
+        customer_a,
+        customer_b,
+        agent,
+        category,
+        priority,
+        *statuses,
+    ]
+)
         await db.flush()
         db.add_all(
             [
@@ -184,7 +204,16 @@ async def _create_harness(
         return (
             engine,
             sessions,
-            Seed(admin, customer_a, customer_b, agent, category, priority),
+            Seed(
+                admin,
+                customer_a,
+                customer_b,
+                agent,
+                category,
+                priority,
+                customer_department,
+                operations,
+            ),
         )
 
 
@@ -283,8 +312,9 @@ def test_permission_ownership_management_and_ticket_workflow_http(tmp_path) -> N
             department = client.post(
                 "/api/v1/departments",
                 headers=_headers(admin_token),
-                json={"code": "OPS", "name": "Operations"},
+                json={"code": "TECH", "name": "Technical Support"},
             )
+
             assert department.status_code == 201
             role = client.post(
                 "/api/v1/roles",

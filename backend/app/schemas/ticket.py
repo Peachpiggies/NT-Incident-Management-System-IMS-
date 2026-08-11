@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.core.enums import TicketSource
+
 from app.schemas.common import (
     CategorySummary,
     DepartmentSummary,
@@ -29,9 +31,15 @@ class TicketBase(BaseModel):
 
     category_id: UUID
 
+    subcategory_id: UUID | None = None
+
+    service_id: UUID | None = None
+
     priority_id: UUID
 
-    department_id: UUID
+    department_id: UUID | None = None
+
+    source: TicketSource = TicketSource.WEB
 
 
 # ==========================================================
@@ -56,9 +64,15 @@ class TicketUpdate(BaseModel):
 
     category_id: UUID | None = None
 
+    subcategory_id: UUID | None = None
+
+    service_id: UUID | None = None
+
     priority_id: UUID | None = None
 
     department_id: UUID | None = None
+
+    source: TicketSource | None = None
 
 
 # ==========================================================
@@ -126,7 +140,7 @@ class TicketSummary(BaseModel):
 
     id: UUID
 
-    ticket_number: str
+    ticket_no: str
 
     title: str
 
@@ -134,7 +148,7 @@ class TicketSummary(BaseModel):
 
     priority: PrioritySummary
 
-    reporter: UserSummary
+    requester: UserSummary
 
     assignee: UserSummary | None = None
 
@@ -147,50 +161,45 @@ class TicketSummary(BaseModel):
 
 
 class TicketDetail(BaseModel):
-
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-
-    ticket_number: str
-
+    ticket_no: str
     title: str
-
     description: str
 
-    reporter: UserSummary
+    requester: UserSummary
+    requester_id: UUID
 
     assignee: UserSummary | None = None
+    assigned_to: UUID | None = None
 
-    department: DepartmentSummary
+    department: DepartmentSummary | None = None
+    department_id: UUID | None = None
 
     category: CategorySummary
+    category_id: UUID
 
     priority: PrioritySummary
+    priority_id: UUID
 
     status: StatusSummary
+    status_id: UUID
 
-    created_at: datetime
-
-    updated_at: datetime
-
-    resolved_at: datetime | None = None
-
-    closed_at: datetime | None = None
+    # keep the rest of your existing fields unchanged
 
 
 # ==========================================================
 # Response
 # ==========================================================
 
+# NOTE: `TicketResponse` intentionally has no `success`/`message`/`data`
+# envelope. Every endpoint in `app.api.v1.tickets` returns the `Ticket`
+# ORM object directly (e.g. `create_ticket() -> Ticket: ... return ticket`)
+# and `TicketPage.items` is typed as `list[TicketResponse]`, so this needs
+# to be the flat ticket-detail shape, not a wrapper around it.
 
-class TicketResponse(BaseModel):
-
-    success: bool = True
-
-    message: str
-
-    data: TicketDetail
+TicketResponse = TicketDetail
 
 
 class TicketListResponse(BaseModel):

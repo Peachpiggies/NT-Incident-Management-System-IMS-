@@ -2,52 +2,96 @@ import asyncio
 from uuid import uuid4
 
 import pytest
+from app.schemas.auth import (RefreshTokenRequest, RegisterRequest)
+
 from app.api.v1.auth import (
-    RefreshRequest,
-    UserRegisterRequest,
+    
     list_sessions,
+    
     refresh,
+    
     register,
+    
     revoke_all_sessions,
+    
     revoke_session,
+    
 )
+
 from app.api.v1.dependencies import (
+    
     require_permission,
+    
     require_ticket_read,
+    
     ticket_read_scope,
+    
     user_has_permission,
+    
 )
+
 from app.api.v1.organization import (
+    
     RoleRequest,
+    
     assign_user_role,
+    
     create_role,
+    
     remove_user_role,
+    
 )
+
 from app.api.v1.permissions import (
+    
     PermissionRequest,
+    
     assign_role_permission,
+    
     create_permission,
+    
     remove_role_permission,
+    
 )
+
 from app.api.v1.users import (
+    
     UserCreateRequest,
+    
     UserUpdateRequest,
+    
     activate_user,
+    
     create_user,
+    
     deactivate_user,
+    
     update_user,
+    
 )
+
 from app.db.models import (
+    
     Base,
+    
     Department,
+    
     Permission,
+    
     RefreshToken,
+    
     Role,
+    
     RolePermission,
+    
     Ticket,
+    
     User,
+    
     UserRole,
+    
 )
+
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -68,7 +112,7 @@ def test_auth_rotation_and_reuse_revokes_all_sessions(tmp_path) -> None:
             session.add(customer)
             await session.commit()
             created = await register(
-                UserRegisterRequest(
+                RegisterRequest(
                     email="customer@example.com",
                     full_name="Test Customer",
                     password="Secure-password-123!",
@@ -77,11 +121,11 @@ def test_auth_rotation_and_reuse_revokes_all_sessions(tmp_path) -> None:
             )
             first_refresh = created.refresh_token
             rotated = await refresh(
-                RefreshRequest(refresh_token=first_refresh), session
+                RefreshTokenRequest(refresh_token=first_refresh), session
             )
             assert rotated.refresh_token != first_refresh
             with pytest.raises(HTTPException, match="reuse detected"):
-                await refresh(RefreshRequest(refresh_token=first_refresh), session)
+                await refresh(RefreshTokenRequest(refresh_token=first_refresh), session)
             active = await session.scalars(
                 select(RefreshToken).where(RefreshToken.revoked_at.is_(None))
             )
@@ -98,7 +142,7 @@ def test_session_listing_and_revoke_operations(tmp_path) -> None:
             session.add(Role(code="customer", name="Customer", is_system=True))
             await session.commit()
             await register(
-                UserRegisterRequest(
+                RegisterRequest(
                     email="sessions@example.com",
                     full_name="Session User",
                     password="Secure-password-123!",
@@ -117,7 +161,7 @@ def test_session_listing_and_revoke_operations(tmp_path) -> None:
             assert await list_sessions(user, session) == []
 
             await register(
-                UserRegisterRequest(
+                RegisterRequest(
                     email="sessions-all@example.com",
                     full_name="Session All User",
                     password="Secure-password-123!",
