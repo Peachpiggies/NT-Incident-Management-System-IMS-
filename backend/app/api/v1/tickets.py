@@ -15,6 +15,8 @@ from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.enums import TicketSource
+
 from app.schemas.ticket import TicketCreate, TicketResponse, TicketUpdate
 
 from app.api.v1.dependencies import (
@@ -423,7 +425,7 @@ async def create_ticket(
         service_id=payload.service_id,
         priority_id=priority.id,
         status_id=initial_status.id,
-        source=payload.source.upper(),
+        source = payload.source or TicketSource.WEB,
         created_by=current_user.id,
     )
     db.add(ticket)

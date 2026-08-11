@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.core.enums import TicketSource
+
 from app.schemas.common import (
     CategorySummary,
     DepartmentSummary,
@@ -45,8 +47,16 @@ class TicketBase(BaseModel):
 # ==========================================================
 
 
-class TicketCreate(TicketBase):
-    pass
+class TicketCreate(BaseModel):
+    title: str
+    description: str
+
+    source: TicketSource = TicketSource.WEB
+
+    category_id: UUID
+    subcategory_id: UUID | None = None
+    service_id: UUID | None = None
+    priority_id: UUID
 
 
 # ==========================================================
