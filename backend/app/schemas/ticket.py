@@ -39,7 +39,7 @@ class TicketBase(BaseModel):
 
     department_id: UUID | None = None
 
-    source: str = Field(..., min_length=2, max_length=50)
+    source: TicketSource = TicketSource.WEB
 
 
 # ==========================================================
@@ -47,16 +47,8 @@ class TicketBase(BaseModel):
 # ==========================================================
 
 
-class TicketCreate(BaseModel):
-    title: str
-    description: str
-
-    source: TicketSource = TicketSource.WEB
-
-    category_id: UUID
-    subcategory_id: UUID | None = None
-    service_id: UUID | None = None
-    priority_id: UUID
+class TicketCreate(TicketBase):
+    pass
 
 
 # ==========================================================
@@ -80,7 +72,7 @@ class TicketUpdate(BaseModel):
 
     department_id: UUID | None = None
 
-    source: str | None = Field(default=None, min_length=2, max_length=50)
+    source: TicketSource | None = None
 
 
 # ==========================================================
@@ -156,7 +148,7 @@ class TicketSummary(BaseModel):
 
     priority: PrioritySummary
 
-    reporter: UserSummary
+    requester: UserSummary
 
     assignee: UserSummary | None = None
 
@@ -169,36 +161,32 @@ class TicketSummary(BaseModel):
 
 
 class TicketDetail(BaseModel):
-
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-
     ticket_no: str
-
     title: str
-
     description: str
 
-    reporter: UserSummary
+    requester: UserSummary
+    requester_id: UUID
 
     assignee: UserSummary | None = None
+    assigned_to: UUID | None = None
 
-    department: DepartmentSummary
+    department: DepartmentSummary | None = None
+    department_id: UUID | None = None
 
     category: CategorySummary
+    category_id: UUID
 
     priority: PrioritySummary
+    priority_id: UUID
 
     status: StatusSummary
+    status_id: UUID
 
-    created_at: datetime
-
-    updated_at: datetime
-
-    resolved_at: datetime | None = None
-
-    closed_at: datetime | None = None
+    # keep the rest of your existing fields unchanged
 
 
 # ==========================================================
