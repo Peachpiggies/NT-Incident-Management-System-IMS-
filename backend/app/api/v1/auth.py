@@ -10,9 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.auth import (
     
     ChangePasswordRequest,
-
+    
     LoginRequest,
-
+    
     LogoutRequest,
     
     RefreshTokenRequest,
@@ -139,7 +139,18 @@ async def register(
     db: Annotated[AsyncSession, Depends(get_db)],
     http_request: Request = None,
 ) -> Token:
-    email = request.email.lower()
+    try:
+        email = normalize_email(request.email)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    try:
+        validate_password(request.password)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
     username = request.username or email.split("@", 1)[0]
     if await _get_user_by_email(db, email) or await db.scalar(
         select(User).where(User.username == username)
@@ -423,6 +434,12 @@ async def change_password(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="New password must differ from the current password",
         )
+    try:
+        validate_password(request.new_password)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
     current_user.password_hash = hash_password(request.new_password)
     await _revoke_all_refresh_tokens(db, current_user.id)
     db.add(
@@ -435,18 +452,3 @@ async def change_password(
         )
     )
     await db.commit()
-
-
-@router.get("/sessions", response_model=list[SessionResponse])
-async def list_sessions(
-    current_user: Annotated[User, Depends(get_current_user)],
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> list[RefreshToken]:
-
-    result = await db.execute(
-        select(RefreshToken)
-        .where(RefreshToken.user_id == current_user.id)
-        .order_by(RefreshToken.created_at.desc())
-    )
-
-    return list(result.scalars().all())

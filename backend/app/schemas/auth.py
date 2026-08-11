@@ -61,7 +61,13 @@ class RegisterRequest(BaseModel):
 
     full_name: str = Field(..., min_length=2, max_length=255)
     email: EmailStr
-    password: str = Field(..., min_length=8, max_length=128)
+    username: str | None = Field(
+        None,
+        min_length=3,
+        max_length=50,
+        description="Optional; defaults to the local part of the email if omitted",
+    )
+    password: str = Field(..., min_length=12, max_length=128)
     department_id: UUID | None = None
 
 
@@ -85,7 +91,7 @@ class ChangePasswordRequest(BaseModel):
     """Change current password."""
 
     current_password: str
-    new_password: str = Field(..., min_length=8, max_length=128)
+    new_password: str = Field(..., min_length=12, max_length=128)
 
 
 class ForgotPasswordRequest(BaseModel):
