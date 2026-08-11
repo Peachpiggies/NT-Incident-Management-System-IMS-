@@ -419,7 +419,7 @@ async def create_ticket(
         title=payload.title,
         description=payload.description,
         requester_id=current_user.id,
-        department_id=payload.department_id or current_user.department_id,
+        department_id=current_user.department_id,
         category_id=payload.category_id,
         subcategory_id=payload.subcategory_id,
         service_id=payload.service_id,
