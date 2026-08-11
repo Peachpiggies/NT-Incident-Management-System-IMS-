@@ -204,7 +204,16 @@ async def _create_harness(
         return (
             engine,
             sessions,
-            Seed(admin, customer_a, customer_b, agent, category, priority),
+            Seed(
+                admin,
+                customer_a,
+                customer_b,
+                agent,
+                category,
+                priority,
+                customer_department,
+                operations,
+            ),
         )
 
 
