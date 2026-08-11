@@ -409,7 +409,7 @@ async def create_ticket(
         db, TicketPriority, payload.priority_id, "ticket priority"
     )
     await _active_department_or_400(
-        db, payload.department_id or current_user.department_id
+        db, current_user.department_id
     )
     initial_status = await _status_by_code(db, "NEW")
     ticket_id = uuid4()

@@ -7,6 +7,7 @@ from app.api.v1.dependencies import get_db
 from app.core.security import hash_password
 from app.db.models import (
     Base,
+    Department,
     Permission,
     Role,
     RolePermission,
@@ -70,12 +71,24 @@ async def _create_harness(
                 code="configuration.manage",
             ),
         ]
+
+        customer_department = Department(
+            code="CUSTOMER",
+            name="Customer Services",
+        )
+
+        operations = Department(
+            code="OPS",
+            name="Operations",
+        )
+
         admin = User(
             username="admin",
             email="admin@example.com",
             first_name="Admin",
             last_name="User",
             password_hash=hash_password(PASSWORD),
+            department = None,
         )
         customer_a = User(
             username="customer-a",
@@ -83,6 +96,7 @@ async def _create_harness(
             first_name="Customer",
             last_name="A",
             password_hash=hash_password(PASSWORD),
+            department = customer_department,
         )
         customer_b = User(
             username="customer-b",
@@ -90,6 +104,7 @@ async def _create_harness(
             first_name="Customer",
             last_name="B",
             password_hash=hash_password(PASSWORD),
+            department = customer_department,
         )
         agent = User(
             username="agent",
@@ -97,6 +112,7 @@ async def _create_harness(
             first_name="Agent",
             last_name="User",
             password_hash=hash_password(PASSWORD),
+            department = operations,
         )
         category = TicketCategory(code="NETWORK", name="Network", is_active=True)
         priority = TicketPriority(code="HIGH", name="High", is_active=True)
