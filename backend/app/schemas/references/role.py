@@ -29,6 +29,11 @@ class RoleBase(BaseModel):
 # ==========================================================
 
 
+class RoleRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=100)
+    name: str = Field(min_length=1, max_length=255)
+
+
 class RoleCreate(RoleBase):
     """Create a role."""
 

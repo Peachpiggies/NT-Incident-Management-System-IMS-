@@ -14,7 +14,15 @@ from app.db.models import ActivityLog, Department, RefreshToken, Role, User, Use
 from app.db.session import get_db
 from app.schemas.references.department import DepartmentSummary
 from app.schemas.references.role import RoleSummary
-from app.schemas.references.user import UserCreate, UserResponse, UserUpdate
+from app.schemas.references.user import (
+
+    UserCreateRequest,
+
+    UserResponse,
+
+    UserUpdateRequest
+
+)
 
 router = APIRouter(tags=["Users"])
 
@@ -147,7 +155,7 @@ async def _response(db: AsyncSession, user: User) -> UserResponse:
 
 async def _assert_unique(
     db: AsyncSession,
-    payload: UserCreate | UserUpdate,
+    payload: UserCreateRequest | UserUpdateRequest,
     user_id: UUID | None = None,
 ) -> None:
     if payload.email is not None:
@@ -202,7 +210,7 @@ async def get_user(
 
 @router.post("/users", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(
-    payload: UserCreate,
+    payload: UserCreateRequest,
     current_user: Annotated[User, Depends(require_permission("user.manage"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserResponse:
@@ -239,7 +247,7 @@ async def create_user(
 @router.patch("/users/{user_id}", response_model=UserResponse)
 async def update_user(
     user_id: UUID,
-    payload: UserUpdate,
+    payload: UserUpdateRequest,
     current_user: Annotated[User, Depends(require_permission("user.manage"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserResponse:

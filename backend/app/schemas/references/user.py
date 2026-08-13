@@ -120,3 +120,53 @@ class UserListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class UserCreateRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=100, pattern=r"^[a-zA-Z0-9._-]+$")
+    email: str = Field(min_length=3, max_length=255)
+    first_name: str = Field(min_length=1, max_length=100)
+    last_name: str = Field(min_length=1, max_length=100)
+    password: str = Field(min_length=12, max_length=128)
+    employee_code: str | None = Field(default=None, max_length=100)
+    phone: str | None = Field(default=None, max_length=30)
+    department_id: UUID | None = None
+    role_ids: list[UUID] = Field(min_length=1)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        return normalize_email(value)
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone_number(cls, value: str | None) -> str | None:
+        return validate_phone(value)
+
+    @field_validator("password")
+    @classmethod
+    def validate_new_password(cls, value: str) -> str:
+        return validate_password(value)
+
+
+class UserUpdateRequest(BaseModel):
+    username: str | None = Field(
+        default=None, min_length=3, max_length=100, pattern=r"^[a-zA-Z0-9._-]+$"
+    )
+    email: str | None = Field(default=None, min_length=3, max_length=255)
+    first_name: str | None = Field(default=None, min_length=1, max_length=100)
+    last_name: str | None = Field(default=None, min_length=1, max_length=100)
+    employee_code: str | None = Field(default=None, max_length=100)
+    phone: str | None = Field(default=None, max_length=30)
+    department_id: UUID | None = None
+    role_ids: list[UUID] | None = Field(default=None, min_length=1)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str | None) -> str | None:
+        return normalize_email(value) if value is not None else None
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone_number(cls, value: str | None) -> str | None:
+        return validate_phone(value)

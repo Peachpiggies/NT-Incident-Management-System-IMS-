@@ -50,6 +50,8 @@ from app.schemas.references.role import (
 
     RoleListResponse,
 
+    RoleRequest,
+
     RoleResponse,
 
     RoleUpdate,
@@ -98,15 +100,17 @@ from app.schemas.references.subcategory import (
 
 from app.schemas.references.user import (
 
-    UserBrief,
-
     UserCreate,
+
+    UserCreateRequest,
 
     UserListResponse,
 
     UserResponse,
 
     UserUpdate,
+
+    UserUpdateRequest,
 
 )
 
@@ -134,6 +138,7 @@ __all__ = [
     "RoleBrief",
     "RoleCreate",
     "RoleListResponse",
+    "RoleRequest",
     "RoleResponse",
     "RoleUpdate",
     
@@ -158,10 +163,11 @@ __all__ = [
     "SubcategoryUpdate",
     
     # user
-    "UserBrief",
     "UserCreate",
+    "UserCreateRequest",
     "UserListResponse",
     "UserResponse",
     "UserUpdate",
+    "UserUpdateRequest",
     
 ]

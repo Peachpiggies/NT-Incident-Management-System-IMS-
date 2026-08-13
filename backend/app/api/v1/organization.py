@@ -12,7 +12,7 @@ from app.api.v1.dependencies import require_permission
 from app.db.models import ActivityLog, Department, Role, RolePermission, User, UserRole
 from app.db.session import get_db
 from app.schemas.references.department import DepartmentCreate, DepartmentResponse
-from app.schemas.references.role import RoleCreate, RoleResponse, UserRoleResponse
+from app.schemas.references.role import RoleCreate, RoleResponse, RoleRequest, UserRoleResponse
 
 router = APIRouter(tags=["Organization"])
 
