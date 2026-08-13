@@ -70,6 +70,19 @@ class DepartmentListResponse(BaseModel):
 
 
 # ==========================================================
+# Request
+# ==========================================================
+
+
+class DepartmentRequest(BaseModel):
+    code: str = Field(min_length=2, max_length=50, pattern=r"^[A-Z0-9_]+$")
+    name: str = Field(min_length=2, max_length=160)
+    description: str | None = None
+    parent_department_id: UUID | None = None
+    is_active: bool = True
+
+
+# ==========================================================
 # Summary
 # ==========================================================
 

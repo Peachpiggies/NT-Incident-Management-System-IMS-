@@ -24,6 +24,8 @@ from app.schemas.references.department import (
 
     DepartmentListResponse,
 
+    DepartmentRequest,
+
     DepartmentResponse,
 
     DepartmentUpdate,
@@ -125,6 +127,7 @@ __all__ = [
     # department
     "DepartmentCreate",
     "DepartmentListResponse",
+    "DepartmentRequest",
     "DepartmentResponse",
     "DepartmentUpdate",
     

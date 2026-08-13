@@ -11,8 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import require_permission
 from app.db.models import ActivityLog, Department, Role, RolePermission, User, UserRole
 from app.db.session import get_db
-from app.schemas.references.department import DepartmentCreate, DepartmentResponse
-from app.schemas.references.role import RoleCreate, RoleResponse, RoleRequest, UserRoleResponse
+
+from app.schemas.references.department import DepartmentRequest, DepartmentResponse
+from app.schemas.references.role import RoleResponse, RoleRequest, UserRoleResponse
 
 router = APIRouter(tags=["Organization"])
 
@@ -92,7 +93,7 @@ async def list_departments(
     status_code=status.HTTP_201_CREATED,
 )
 async def create_department(
-    payload: DepartmentCreate,
+    payload: DepartmentRequest,
     current_user: Annotated[User, Depends(require_permission("department.manage"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Department:
@@ -130,7 +131,7 @@ async def get_department(
 @router.patch("/departments/{department_id}", response_model=DepartmentResponse)
 async def update_department(
     department_id: UUID,
-    payload: DepartmentCreate,
+    payload: DepartmentRequest,
     current_user: Annotated[User, Depends(require_permission("department.manage"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Department:
@@ -219,7 +220,7 @@ async def list_roles(
 
 @router.post("/roles", response_model=RoleResponse, status_code=status.HTTP_201_CREATED)
 async def create_role(
-    payload: RoleCreate,
+    payload: RoleRequest,
     current_user: Annotated[User, Depends(require_permission("role.manage"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Role:
@@ -255,7 +256,7 @@ async def get_role(
 @router.patch("/roles/{role_id}", response_model=RoleResponse)
 async def update_role(
     role_id: UUID,
-    payload: RoleCreate,
+    payload: RoleRequest,
     current_user: Annotated[User, Depends(require_permission("role.manage"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Role:
