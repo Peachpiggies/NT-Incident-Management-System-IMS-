@@ -5,98 +5,26 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_current_user, require_permission
 from app.core.security import hash_password
-from app.core.validation import normalize_email, validate_password, validate_phone
 from app.db.models import ActivityLog, Department, RefreshToken, Role, User, UserRole
 from app.db.session import get_db
+from app.schemas.references.department import DepartmentSummary
+from app.schemas.references.role import RoleSummary
+from app.schemas.references.user import (
+
+    UserCreateRequest,
+
+    UserResponse,
+
+    UserUpdateRequest
+
+)
 
 router = APIRouter(tags=["Users"])
-
-
-class DepartmentSummary(BaseModel):
-    id: UUID
-    code: str
-    name: str
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class RoleSummary(BaseModel):
-    id: UUID
-    code: str
-    name: str
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class UserResponse(BaseModel):
-    id: UUID
-    username: str
-    email: str
-    first_name: str
-    last_name: str
-    employee_code: str | None
-    phone: str | None
-    department: DepartmentSummary | None
-    roles: list[RoleSummary] = Field(default_factory=list)
-    is_active: bool
-    created_at: datetime
-    updated_at: datetime
-
-
-class UserCreateRequest(BaseModel):
-    username: str = Field(min_length=3, max_length=100, pattern=r"^[a-zA-Z0-9._-]+$")
-    email: str = Field(min_length=3, max_length=255)
-    first_name: str = Field(min_length=1, max_length=100)
-    last_name: str = Field(min_length=1, max_length=100)
-    password: str = Field(min_length=12, max_length=128)
-    employee_code: str | None = Field(default=None, max_length=100)
-    phone: str | None = Field(default=None, max_length=30)
-    department_id: UUID | None = None
-    role_ids: list[UUID] = Field(min_length=1)
-
-    @field_validator("email")
-    @classmethod
-    def validate_email(cls, value: str) -> str:
-        return normalize_email(value)
-
-    @field_validator("phone")
-    @classmethod
-    def validate_phone_number(cls, value: str | None) -> str | None:
-        return validate_phone(value)
-
-    @field_validator("password")
-    @classmethod
-    def validate_new_password(cls, value: str) -> str:
-        return validate_password(value)
-
-
-class UserUpdateRequest(BaseModel):
-    username: str | None = Field(
-        default=None, min_length=3, max_length=100, pattern=r"^[a-zA-Z0-9._-]+$"
-    )
-    email: str | None = Field(default=None, min_length=3, max_length=255)
-    first_name: str | None = Field(default=None, min_length=1, max_length=100)
-    last_name: str | None = Field(default=None, min_length=1, max_length=100)
-    employee_code: str | None = Field(default=None, max_length=100)
-    phone: str | None = Field(default=None, max_length=30)
-    department_id: UUID | None = None
-    role_ids: list[UUID] | None = Field(default=None, min_length=1)
-
-    @field_validator("email")
-    @classmethod
-    def validate_email(cls, value: str | None) -> str | None:
-        return normalize_email(value) if value is not None else None
-
-    @field_validator("phone")
-    @classmethod
-    def validate_phone_number(cls, value: str | None) -> str | None:
-        return validate_phone(value)
 
 
 async def _get_user_or_404(db: AsyncSession, user_id: UUID) -> User:

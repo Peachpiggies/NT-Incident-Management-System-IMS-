@@ -24,6 +24,8 @@ from app.schemas.references.department import (
 
     DepartmentListResponse,
 
+    DepartmentRequest,
+
     DepartmentResponse,
 
     DepartmentUpdate,
@@ -49,6 +51,8 @@ from app.schemas.references.role import (
     RoleCreate,
 
     RoleListResponse,
+
+    RoleRequest,
 
     RoleResponse,
 
@@ -98,15 +102,17 @@ from app.schemas.references.subcategory import (
 
 from app.schemas.references.user import (
 
-    UserBrief,
-
     UserCreate,
+
+    UserCreateRequest,
 
     UserListResponse,
 
     UserResponse,
 
     UserUpdate,
+
+    UserUpdateRequest,
 
 )
 
@@ -121,6 +127,7 @@ __all__ = [
     # department
     "DepartmentCreate",
     "DepartmentListResponse",
+    "DepartmentRequest",
     "DepartmentResponse",
     "DepartmentUpdate",
     
@@ -134,6 +141,7 @@ __all__ = [
     "RoleBrief",
     "RoleCreate",
     "RoleListResponse",
+    "RoleRequest",
     "RoleResponse",
     "RoleUpdate",
     
@@ -158,10 +166,11 @@ __all__ = [
     "SubcategoryUpdate",
     
     # user
-    "UserBrief",
     "UserCreate",
+    "UserCreateRequest",
     "UserListResponse",
     "UserResponse",
     "UserUpdate",
+    "UserUpdateRequest",
     
 ]

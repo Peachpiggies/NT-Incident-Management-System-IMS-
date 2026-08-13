@@ -5,7 +5,6 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,45 +12,10 @@ from app.api.v1.dependencies import require_permission
 from app.db.models import ActivityLog, Department, Role, RolePermission, User, UserRole
 from app.db.session import get_db
 
+from app.schemas.references.department import DepartmentRequest, DepartmentResponse
+from app.schemas.references.role import RoleResponse, RoleRequest, UserRoleResponse
+
 router = APIRouter(tags=["Organization"])
-
-
-class DepartmentRequest(BaseModel):
-    code: str = Field(min_length=2, max_length=50, pattern=r"^[A-Z0-9_]+$")
-    name: str = Field(min_length=2, max_length=160)
-    description: str | None = None
-    parent_department_id: UUID | None = None
-    is_active: bool = True
-
-
-class DepartmentResponse(DepartmentRequest):
-    id: UUID
-    created_at: datetime
-    updated_at: datetime
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class RoleRequest(BaseModel):
-    code: str = Field(min_length=2, max_length=100, pattern=r"^[a-z0-9._-]+$")
-    name: str = Field(min_length=2, max_length=100)
-    description: str | None = None
-
-
-class RoleResponse(RoleRequest):
-    id: UUID
-    is_system: bool
-    created_at: datetime
-    updated_at: datetime
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class UserRoleResponse(BaseModel):
-    id: UUID
-    user_id: UUID
-    role: RoleResponse
-    created_at: datetime
 
 
 async def _department_or_404(db: AsyncSession, department_id: UUID) -> Department:
