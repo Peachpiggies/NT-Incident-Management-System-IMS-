@@ -1,198 +1,455 @@
-"""FastAPI routes exposing the ticket workflow service layer.
+"""Service layer for ticket assignment, tier escalation, status transitions,
+MDDR checkpoints, SLA evaluation, and comment/technical-update recording.
 
-Assumes two dependencies already exist elsewhere in the app (they're implied
-by the `RefreshToken`/`LoginHistory` tables but weren't part of this task):
-
-    app.api.deps.get_db()            -> yields a `Session`
-    app.api.deps.get_current_user()  -> resolves the JWT/session and
-                                         returns the authenticated `User`
-
-If those live at different import paths, only the two imports below need to
-change -- nothing else in this file depends on how auth is implemented.
-
-Each endpoint owns its transaction: it calls into `ticket_workflow`, and only
-commits after every mutation succeeds. If anything raises, FastAPI's default
-exception handling combined with the session lifecycle in `get_db` should
-roll back (a `get_db` that does `try/finally: session.close()` without an
-explicit commit-on-success is safe here since we commit explicitly below).
+All functions take a live SQLAlchemy `Session` and an already-loaded `Ticket`
+instance. They mutate the ORM objects, write the appropriate audit rows
+(`TicketHistory`, `TicketAssignment`, `TicketEscalation`), and `session.flush()`
+so generated IDs/timestamps are available -- but they never `commit()`.
+Committing (and rolling back on error) is the caller's responsibility, so this
+module composes cleanly inside a single request-scoped transaction.
 """
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from typing import Callable
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_db
-from app.core.permissions import make_permission_checker
-from app.db.models import Ticket, User
-from app.schemas.ticket import (
-    AssignTicketRequest,
-    CheckpointRequest,
-    CommentRequest,
-    EscalateTicketRequest,
-    SlaEvaluationResponse,
-    StatusTransitionRequest,
-    TicketAssignmentRead,
-    TicketCommentRead,
-    TicketEscalationRead,
-    TicketRead,
+from app.db.models import (
+    Ticket,
+    TicketAssignment,
+    TicketComment,
+    TicketEscalation,
+    TicketHistory,
+    TicketStatusTransition,
 )
-from app.services import ticket_workflow
 
-router = APIRouter(prefix="/tickets", tags=["ticket-workflow"])
+# --------------------------------------------------------------------------
+# Errors
+# --------------------------------------------------------------------------
 
 
-def get_ticket_or_404(ticket_id: UUID, db: Session = Depends(get_db)) -> Ticket:
-    ticket = db.get(Ticket, ticket_id)
-    if ticket is None or ticket.is_deleted:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Ticket not found")
+class TicketWorkflowError(Exception):
+    """Base class for all ticket-workflow violations."""
+
+
+class InvalidStatusTransition(TicketWorkflowError):
+    """Raised when there is no active, configured edge between two statuses."""
+
+
+class MissingTransitionPermission(TicketWorkflowError):
+    """Raised when a status transition requires a permission the actor lacks."""
+
+
+class InvalidTierTransition(TicketWorkflowError):
+    """Raised when an escalation would skip a tier or move backwards."""
+
+
+class InvalidCheckpointOrder(TicketWorkflowError):
+    """Raised when an MDDR checkpoint would violate chronological ordering."""
+
+
+# --------------------------------------------------------------------------
+# Constants
+# --------------------------------------------------------------------------
+
+ESCALATION_TYPES = {"FUNCTIONAL", "TECHNICAL"}
+
+# MDDR: Occurred -> Detected -> Diagnosed -> Resolved. `closed_at` is a
+# separate, post-resolution lifecycle event and is not part of the MDDR chain.
+MDDR_CHECKPOINTS = ("occurred_at", "detected_at", "diagnosed_at", "resolved_at")
+
+MAX_TIER = 3
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _record_history(
+    session: Session,
+    ticket: Ticket,
+    *,
+    action: str,
+    field: str | None = None,
+    old_value: str | None = None,
+    new_value: str | None = None,
+    performed_by: UUID | None = None,
+    remark: str | None = None,
+) -> TicketHistory:
+    entry = TicketHistory(
+        ticket_id=ticket.id,
+        action=action,
+        field=field,
+        old_value=old_value,
+        new_value=new_value,
+        performed_by=performed_by,
+        remark=remark,
+    )
+    session.add(entry)
+    return entry
+
+
+def _touch(ticket: Ticket, *, actor_id: UUID | None) -> None:
+    """Bump optimistic-lock version and updated_by on every mutation."""
+    ticket.version += 1
+    if actor_id is not None:
+        ticket.updated_by = actor_id
+
+
+# --------------------------------------------------------------------------
+# Assignment
+# --------------------------------------------------------------------------
+
+
+def assign_ticket(
+    session: Session,
+    ticket: Ticket,
+    *,
+    assigned_to: UUID,
+    actor_id: UUID | None,
+    reason: str | None = None,
+) -> TicketAssignment:
+    """Assign (or reassign) a ticket to a user, recording full history.
+
+    Safe to call whether or not the ticket currently has an assignee -- the
+    first call is treated as an initial assignment (assigned_from=None).
+    """
+    if ticket.assigned_to == assigned_to:
+        raise TicketWorkflowError("Ticket is already assigned to this user")
+
+    assignment = TicketAssignment(
+        ticket_id=ticket.id,
+        assigned_from=ticket.assigned_to,
+        assigned_to=assigned_to,
+        reason=reason,
+        created_by=actor_id,
+    )
+    session.add(assignment)
+
+    _record_history(
+        session,
+        ticket,
+        action="REASSIGN" if ticket.assigned_to else "ASSIGN",
+        field="assigned_to",
+        old_value=str(ticket.assigned_to) if ticket.assigned_to else None,
+        new_value=str(assigned_to),
+        performed_by=actor_id,
+        remark=reason,
+    )
+
+    ticket.assigned_to = assigned_to
+    _touch(ticket, actor_id=actor_id)
+    session.flush()
+    return assignment
+
+
+# --------------------------------------------------------------------------
+# Tier escalation (T1 -> T2 -> T3), with team ownership handoff
+# --------------------------------------------------------------------------
+
+
+def escalate_ticket(
+    session: Session,
+    ticket: Ticket,
+    *,
+    escalation_type: str,
+    to_tier: int | None = None,
+    to_department_id: UUID | None = None,
+    reason_code: str | None = None,
+    comment: str | None = None,
+    escalated_by: UUID | None = None,
+    allow_tier_skip: bool = False,
+) -> TicketEscalation:
+    """Escalate a ticket, either functionally or technically.
+
+    FUNCTIONAL: re-routes to a more appropriate team (e.g. Helpdesk ->
+    Billing). `to_department_id` is required. Tier does NOT need to change --
+    it defaults to the current tier, and if a tier is given it only needs to
+    be >= the current one (no "one step at a time" restriction, since this
+    isn't a tier chain).
+
+    TECHNICAL: moves the ticket up the expertise chain (T1 -> T2 -> T3).
+    `to_tier` is required and must be exactly one tier higher unless
+    `allow_tier_skip=True`. `to_department_id` is optional -- the ticket may
+    stay with the same team at a higher tier, or hand off to that team's
+    senior/manager tier.
+
+    Either way, `ticket.department_id` (current owner) is kept in sync with
+    `to_department_id` here -- this is the one place that happens.
+    """
+    if escalation_type not in ESCALATION_TYPES:
+        raise TicketWorkflowError(
+            f"Unknown escalation_type {escalation_type!r}; expected one of {sorted(ESCALATION_TYPES)}"
+        )
+
+    if escalation_type == "FUNCTIONAL":
+        if to_department_id is None:
+            raise TicketWorkflowError(
+                "to_department_id is required for a functional escalation"
+            )
+        to_tier = ticket.current_tier if to_tier is None else to_tier
+        if to_tier < ticket.current_tier or to_tier > MAX_TIER:
+            raise InvalidTierTransition(
+                f"to_tier ({to_tier}) must be between current_tier "
+                f"({ticket.current_tier}) and {MAX_TIER} for a functional escalation"
+            )
+    else:  # TECHNICAL
+        if to_tier is None:
+            raise TicketWorkflowError("to_tier is required for a technical escalation")
+        if to_tier > MAX_TIER:
+            raise InvalidTierTransition(f"Cannot escalate past tier {MAX_TIER}")
+        if to_tier <= ticket.current_tier:
+            raise InvalidTierTransition(
+                f"to_tier ({to_tier}) must be higher than current_tier "
+                f"({ticket.current_tier}) for a technical escalation"
+            )
+        if not allow_tier_skip and to_tier != ticket.current_tier + 1:
+            raise InvalidTierTransition(
+                f"Technical escalation must move exactly one tier at a time "
+                f"(from {ticket.current_tier} to {ticket.current_tier + 1}), got {to_tier}"
+            )
+
+    from_department_id = ticket.department_id
+    from_user_id = ticket.assigned_to
+    escalation = TicketEscalation(
+        ticket_id=ticket.id,
+        escalation_type=escalation_type,
+        from_tier=ticket.current_tier,
+        to_tier=to_tier,
+        from_department_id=from_department_id,
+        to_department_id=to_department_id or from_department_id,
+        from_user_id=from_user_id,
+        reason_code=reason_code,
+        comment=comment,
+        escalated_by=escalated_by,
+        created_by=escalated_by,
+    )
+    session.add(escalation)
+
+    _record_history(
+        session,
+        ticket,
+        action="ESCALATE_FUNCTIONAL" if escalation_type == "FUNCTIONAL" else "ESCALATE_TECHNICAL",
+        field="current_tier",
+        old_value=str(ticket.current_tier),
+        new_value=str(to_tier),
+        performed_by=escalated_by,
+        remark=reason_code or comment,
+    )
+
+    previous_tier = ticket.current_tier
+    ticket.current_tier = to_tier
+    if to_department_id and to_department_id != from_department_id:
+        _record_history(
+            session,
+            ticket,
+            action="REASSIGN_TEAM",
+            field="department_id",
+            old_value=str(from_department_id) if from_department_id else None,
+            new_value=str(to_department_id),
+            performed_by=escalated_by,
+            remark=f"{escalation_type} escalation T{previous_tier}->T{to_tier}",
+        )
+        ticket.department_id = to_department_id
+        # New team, new investigation queue: clear the previous assignee so
+        # the ticket surfaces as unassigned in the receiving team's queue.
+        ticket.assigned_to = None
+
+    _touch(ticket, actor_id=escalated_by)
+    session.flush()
+    return escalation
+
+
+# --------------------------------------------------------------------------
+# Status transitions (administrator-configured state machine)
+# --------------------------------------------------------------------------
+
+
+def transition_status(
+    session: Session,
+    ticket: Ticket,
+    *,
+    to_status_id: UUID,
+    performed_by: UUID | None,
+    remark: str | None = None,
+    has_permission: Callable[[str], bool] | None = None,
+    is_closed_status: bool = False,
+) -> Ticket:
+    """Move a ticket to a new status, enforcing the configured transition graph.
+
+    `has_permission`, if given, is called with the transition's
+    `required_permission` code (when set) and must return True/False. Pass it
+    from wherever your auth/permission checking already lives -- this module
+    intentionally has no opinion on how permissions are resolved.
+    """
+    edge = session.execute(
+        select(TicketStatusTransition).where(
+            TicketStatusTransition.from_status_id == ticket.status_id,
+            TicketStatusTransition.to_status_id == to_status_id,
+            TicketStatusTransition.is_active.is_(True),
+            TicketStatusTransition.is_deleted.is_(False),
+        )
+    ).scalar_one_or_none()
+
+    if edge is None:
+        raise InvalidStatusTransition(
+            f"No active transition configured from {ticket.status_id} to {to_status_id}"
+        )
+    if edge.required_permission and has_permission is not None:
+        if not has_permission(edge.required_permission):
+            raise MissingTransitionPermission(
+                f"Missing required permission: {edge.required_permission}"
+            )
+
+    _record_history(
+        session,
+        ticket,
+        action="STATUS_CHANGE",
+        field="status_id",
+        old_value=str(ticket.status_id),
+        new_value=str(to_status_id),
+        performed_by=performed_by,
+        remark=remark,
+    )
+
+    ticket.status_id = to_status_id
+    if is_closed_status:
+        ticket.closed_at = ticket.closed_at or _utcnow()
+
+    _touch(ticket, actor_id=performed_by)
+    session.flush()
     return ticket
 
 
-def _handle_workflow_errors(exc: ticket_workflow.TicketWorkflowError) -> HTTPException:
-    if isinstance(exc, ticket_workflow.MissingTransitionPermission):
-        return HTTPException(status.HTTP_403_FORBIDDEN, str(exc))
-    if isinstance(exc, ticket_workflow.InvalidCheckpointOrder):
-        return HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
-    if isinstance(
-        exc,
-        (ticket_workflow.InvalidStatusTransition, ticket_workflow.InvalidTierTransition),
-    ):
-        return HTTPException(status.HTTP_409_CONFLICT, str(exc))
-    return HTTPException(status.HTTP_409_CONFLICT, str(exc))
+# --------------------------------------------------------------------------
+# MDDR checkpoints
+# --------------------------------------------------------------------------
 
 
-@router.post("/{ticket_id}/assign", response_model=TicketAssignmentRead)
-def assign_ticket(
-    body: AssignTicketRequest,
-    ticket: Ticket = Depends(get_ticket_or_404),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> TicketAssignmentRead:
-    try:
-        assignment = ticket_workflow.assign_ticket(
-            db,
-            ticket,
-            assigned_to=body.assigned_to,
-            actor_id=current_user.id,
-            reason=body.reason,
-        )
-    except ticket_workflow.TicketWorkflowError as exc:
-        db.rollback()
-        raise _handle_workflow_errors(exc) from exc
-    db.commit()
-    db.refresh(assignment)
-    return TicketAssignmentRead.model_validate(assignment)
-
-
-@router.post("/{ticket_id}/escalate", response_model=TicketEscalationRead)
-def escalate_ticket(
-    body: EscalateTicketRequest,
-    ticket: Ticket = Depends(get_ticket_or_404),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> TicketEscalationRead:
-    try:
-        escalation = ticket_workflow.escalate_ticket(
-            db,
-            ticket,
-            escalation_type=body.escalation_type,
-            to_tier=body.to_tier,
-            to_department_id=body.to_department_id,
-            reason_code=body.reason_code,
-            comment=body.comment,
-            escalated_by=current_user.id,
-            allow_tier_skip=body.allow_tier_skip,
-        )
-    except ticket_workflow.TicketWorkflowError as exc:
-        db.rollback()
-        raise _handle_workflow_errors(exc) from exc
-    db.commit()
-    db.refresh(escalation)
-    return TicketEscalationRead.model_validate(escalation)
-
-
-@router.post("/{ticket_id}/status", response_model=TicketRead)
-def transition_status(
-    body: StatusTransitionRequest,
-    ticket: Ticket = Depends(get_ticket_or_404),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> TicketRead:
-    has_permission = make_permission_checker(db, current_user.id)
-    try:
-        ticket_workflow.transition_status(
-            db,
-            ticket,
-            to_status_id=body.to_status_id,
-            performed_by=current_user.id,
-            remark=body.remark,
-            has_permission=has_permission,
-            is_closed_status=body.is_closed_status,
-        )
-    except ticket_workflow.TicketWorkflowError as exc:
-        db.rollback()
-        raise _handle_workflow_errors(exc) from exc
-    db.commit()
-    db.refresh(ticket)
-    return TicketRead.model_validate(ticket)
-
-
-@router.post("/{ticket_id}/checkpoints", response_model=TicketRead)
 def record_checkpoint(
-    body: CheckpointRequest,
-    ticket: Ticket = Depends(get_ticket_or_404),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> TicketRead:
-    try:
-        ticket_workflow.record_checkpoint(
-            db,
-            ticket,
-            checkpoint=body.checkpoint,
-            at=body.at,
-            performed_by=current_user.id,
+    session: Session,
+    ticket: Ticket,
+    *,
+    checkpoint: str,
+    at: datetime | None = None,
+    performed_by: UUID | None = None,
+) -> Ticket:
+    """Record one MDDR checkpoint (occurred/detected/diagnosed/resolved),
+    enforcing that checkpoints stay chronologically consistent with each
+    other regardless of the order they're reported in.
+    """
+    if checkpoint not in MDDR_CHECKPOINTS:
+        raise TicketWorkflowError(
+            f"Unknown checkpoint {checkpoint!r}; expected one of {MDDR_CHECKPOINTS}"
         )
-    except ticket_workflow.TicketWorkflowError as exc:
-        db.rollback()
-        raise _handle_workflow_errors(exc) from exc
-    db.commit()
-    db.refresh(ticket)
-    return TicketRead.model_validate(ticket)
+    at = at or _utcnow()
+    idx = MDDR_CHECKPOINTS.index(checkpoint)
+
+    for earlier in MDDR_CHECKPOINTS[:idx]:
+        earlier_value = getattr(ticket, earlier)
+        if earlier_value is not None and at < earlier_value:
+            raise InvalidCheckpointOrder(
+                f"{checkpoint}={at.isoformat()} is before {earlier}={earlier_value.isoformat()}"
+            )
+    for later in MDDR_CHECKPOINTS[idx + 1 :]:
+        later_value = getattr(ticket, later)
+        if later_value is not None and at > later_value:
+            raise InvalidCheckpointOrder(
+                f"{checkpoint}={at.isoformat()} is after {later}={later_value.isoformat()}"
+            )
+
+    old_value = getattr(ticket, checkpoint)
+    _record_history(
+        session,
+        ticket,
+        action="MDDR_CHECKPOINT",
+        field=checkpoint,
+        old_value=old_value.isoformat() if old_value else None,
+        new_value=at.isoformat(),
+        performed_by=performed_by,
+    )
+    setattr(ticket, checkpoint, at)
+    _touch(ticket, actor_id=performed_by)
+    session.flush()
+    return ticket
 
 
-@router.post("/{ticket_id}/comments", response_model=TicketCommentRead, status_code=status.HTTP_201_CREATED)
-def add_comment(
-    body: CommentRequest,
-    ticket: Ticket = Depends(get_ticket_or_404),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> TicketCommentRead:
-    try:
-        comment = ticket_workflow.add_update(
-            db,
-            ticket,
-            user_id=current_user.id,
-            comment=body.comment,
-            update_type=body.update_type,
-            is_internal=body.is_internal,
-        )
-    except ticket_workflow.TicketWorkflowError as exc:
-        db.rollback()
-        raise _handle_workflow_errors(exc) from exc
-    db.commit()
-    db.refresh(comment)
-    return TicketCommentRead.model_validate(comment)
+# --------------------------------------------------------------------------
+# SLA evaluation
+# --------------------------------------------------------------------------
 
 
-@router.post("/{ticket_id}/sla/evaluate", response_model=SlaEvaluationResponse)
 def evaluate_sla(
-    ticket: Ticket = Depends(get_ticket_or_404),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> SlaEvaluationResponse:
-    breached = ticket_workflow.evaluate_sla(db, ticket, performed_by=current_user.id)
-    db.commit()
-    return SlaEvaluationResponse(ticket_id=ticket.id, sla_breached=breached)
+    session: Session,
+    ticket: Ticket,
+    *,
+    as_of: datetime | None = None,
+    performed_by: UUID | None = None,
+) -> bool:
+    """Recompute `ticket.sla_breached` against `due_at`.
+
+    Once a ticket is resolved or closed the breach state is frozen (evaluated
+    against `resolved_at`/`closed_at` rather than "now"), so a slow-to-close
+    ticket doesn't keep flipping breached after the work is actually done.
+    """
+    if ticket.due_at is None:
+        return ticket.sla_breached
+
+    reference = ticket.resolved_at or ticket.closed_at or as_of or _utcnow()
+    breached = reference > ticket.due_at
+
+    if breached != ticket.sla_breached:
+        _record_history(
+            session,
+            ticket,
+            action="SLA_EVALUATION",
+            field="sla_breached",
+            old_value=str(ticket.sla_breached),
+            new_value=str(breached),
+            performed_by=performed_by,
+        )
+        ticket.sla_breached = breached
+        _touch(ticket, actor_id=performed_by)
+        session.flush()
+
+    return ticket.sla_breached
+
+
+# --------------------------------------------------------------------------
+# Notes / technical updates (investigation timeline)
+# --------------------------------------------------------------------------
+
+
+def add_update(
+    session: Session,
+    ticket: Ticket,
+    *,
+    user_id: UUID,
+    comment: str,
+    update_type: str = "NOTE",
+    is_internal: bool = True,
+) -> TicketComment:
+    """Append an internal note or a technical/investigation update.
+
+    `update_type="TECHNICAL_UPDATE"` entries are what the T2/T3 investigation
+    timeline filters on (see `ix_ticket_comments_ticket_update_type`);
+    `"NOTE"` is a general internal note. Both are stored in `ticket_comments`.
+    """
+    if update_type not in {"NOTE", "TECHNICAL_UPDATE"}:
+        raise TicketWorkflowError(f"Unknown update_type {update_type!r}")
+
+    entry = TicketComment(
+        ticket_id=ticket.id,
+        user_id=user_id,
+        comment=comment,
+        is_internal=is_internal,
+        update_type=update_type,
+        created_by=user_id,
+    )
+    session.add(entry)
+    session.flush()
+    return entry

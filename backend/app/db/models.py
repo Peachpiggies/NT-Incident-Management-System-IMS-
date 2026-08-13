@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
@@ -403,12 +404,26 @@ class TicketAssignment(BaseModel):
 
 
 class TicketEscalation(BaseModel):
-    """Structured functional/technical escalation history (e.g. T1 -> T2 -> T3)."""
+    """Structured escalation history.
+
+    Two distinct kinds share this table, distinguished by `escalation_type`:
+      - FUNCTIONAL: re-routing to a more appropriate team. Tier does not
+        necessarily change (e.g. Helpdesk -> Billing, both tier 1).
+      - TECHNICAL: moving up the expertise chain, T1 -> T2 -> T3. Tier must
+        increase.
+    """
 
     __tablename__ = "ticket_escalations"
     __table_args__ = (
-        Index(
-            "ix_ticket_escalations_ticket_escalated", "ticket_id", "escalated_at"
+        Index("ix_ticket_escalations_ticket_escalated", "ticket_id", "escalated_at"),
+        Index("ix_ticket_escalations_ticket_type", "ticket_id", "escalation_type"),
+        CheckConstraint(
+            "escalation_type <> 'FUNCTIONAL' OR to_department_id IS NOT NULL",
+            name="ck_ticket_escalations_functional_requires_department",
+        ),
+        CheckConstraint(
+            "escalation_type <> 'TECHNICAL' OR to_tier > from_tier",
+            name="ck_ticket_escalations_technical_requires_tier_increase",
         ),
     )
     ticket_id: Mapped[UUID] = mapped_column(
@@ -423,6 +438,9 @@ class TicketEscalation(BaseModel):
     to_department_id: Mapped[UUID | None] = mapped_column(
         Uuid, ForeignKey("departments.id")
     )
+    from_user_id: Mapped[UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id"), index=True
+    )
     reason_code: Mapped[str | None] = mapped_column(String(50))
     comment: Mapped[str | None] = mapped_column(Text)
     escalated_by: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("users.id"))
@@ -436,6 +454,7 @@ class TicketEscalation(BaseModel):
     to_department: Mapped[Department | None] = relationship(
         foreign_keys=[to_department_id]
     )
+    from_user: Mapped[User | None] = relationship(foreign_keys=[from_user_id])
 
 
 class TicketHistory(BaseModel):

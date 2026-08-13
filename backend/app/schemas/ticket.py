@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core.enums import TicketSource
 
@@ -136,7 +136,11 @@ class TicketEscalate(BaseModel):
 
     escalation_type: TicketEscalationType
 
-    to_tier: int = Field(..., ge=1, le=3)
+    # Required for FUNCTIONAL (which team). Optional for TECHNICAL only in
+    # the sense that the API still requires it there too -- see the
+    # validator below; it's Optional here purely because FUNCTIONAL doesn't
+    # need the caller to specify a tier (it defaults to the current one).
+    to_tier: int | None = Field(default=None, ge=1, le=3)
 
     to_department_id: UUID | None = None
 
@@ -145,6 +149,14 @@ class TicketEscalate(BaseModel):
     comment: str | None = Field(default=None, max_length=4000)
 
     allow_tier_skip: bool = False
+
+    @model_validator(mode="after")
+    def _check_required_fields(self) -> "TicketEscalate":
+        if self.escalation_type == TicketEscalationType.FUNCTIONAL and self.to_department_id is None:
+            raise ValueError("to_department_id is required for a functional escalation")
+        if self.escalation_type == TicketEscalationType.TECHNICAL and self.to_tier is None:
+            raise ValueError("to_tier is required for a technical escalation")
+        return self
 
 
 # ==========================================================
@@ -287,6 +299,8 @@ class TicketEscalationSummary(BaseModel):
     from_department: DepartmentSummary | None = None
 
     to_department: DepartmentSummary | None = None
+
+    from_user: UserSummary | None = None
 
     reason_code: str | None = None
 
