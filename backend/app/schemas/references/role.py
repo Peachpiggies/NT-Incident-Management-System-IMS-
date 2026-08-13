@@ -66,6 +66,16 @@ class RoleBrief(BaseModel):
     name: str
 
 
+class RoleSummary(BaseModel):
+    """Lightweight role reference including its code, for user-facing role lists."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    code: str
+    name: str
+
+
 class RoleListResponse(BaseModel):
     """Paginated list of roles."""
 

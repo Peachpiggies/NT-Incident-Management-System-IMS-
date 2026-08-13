@@ -67,3 +67,16 @@ class DepartmentListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+# ==========================================================
+# Summary
+# ==========================================================
+
+
+class DepartmentSummary(BaseModel):
+    id: UUID
+    code: str
+    name: str
+
+    model_config = ConfigDict(from_attributes=True)
