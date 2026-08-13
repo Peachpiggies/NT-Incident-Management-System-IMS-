@@ -940,6 +940,36 @@ async def assign_ticket(
     return ticket
 
 
+@router.post("/tickets/{ticket_id}/claim", response_model=TicketResponse)
+async def claim_ticket(
+    ticket_id: UUID,
+    current_user: Annotated[User, Depends(require_permission("ticket.claim"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Ticket:
+    """Self-assign an unassigned ticket to the current Tier 1 agent.
+
+    Unlike `POST /tickets/{id}/assign` (a supervisor/dispatcher action that
+    can hand a ticket to anyone and silently overwrite an existing
+    assignee), this enforces that the ticket is still unassigned and that
+    the agent belongs to the ticket's department/queue. See
+    `AssignmentService.claim`.
+    """
+    ticket = await _get_ticket_or_404(ticket_id, db)
+    await AssignmentService(db).claim(ticket, current_user)
+    db.add(
+        _notification(
+            current_user.id,
+            ticket,
+            "Ticket claimed",
+            f"You claimed {ticket.ticket_no}.",
+            "ticket_assignment",
+        )
+    )
+    await commit_ticket_transaction(db)
+    await _refresh_ticket_detail(db, ticket)
+    return ticket
+
+
 @router.post("/tickets/{ticket_id}/assign-department", response_model=TicketResponse)
 async def assign_ticket_department(
     ticket_id: UUID,

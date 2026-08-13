@@ -76,7 +76,21 @@ class AttachmentUpload(BaseModel):
 
 
 class AttachmentResponse(BaseModel):
-    """Attachment response."""
+    """
+    Attachment response.
+
+    Field names mirror the `TicketAttachment` ORM model exactly
+    (`mime_type` / `file_size`, not `content_type` / `size`) so that
+    `AttachmentResponse.model_validate(attachment)` — used with
+    `from_attributes=True` in `app.api.v1.attachments` — can populate
+    every field via plain attribute access. A previous version of this
+    schema used `content_type`/`size`, which don't exist on the model
+    and raised a `ValidationError` on every upload/list call.
+
+    `download_url` is optional and unset by `model_validate`: only
+    `get_attachment` fills it in afterwards (a presigned URL isn't
+    stored on the model), so it must have a default.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -84,12 +98,15 @@ class AttachmentResponse(BaseModel):
     ticket_id: UUID
 
     filename: str
-    content_type: str
-    size: int
+    mime_type: str
+    file_size: int
+    is_internal: bool
 
     uploaded_by: UUID
 
     created_at: datetime
+
+    download_url: str | None = None
 
 
 # ==========================================================
