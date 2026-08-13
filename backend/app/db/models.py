@@ -310,6 +310,7 @@ class Ticket(BaseModel):
             "status_id",
             "created_at",
         ),
+        Index("ix_tickets_tier_status", "current_tier", "status_id"),
     )
     ticket_no: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -339,6 +340,12 @@ class Ticket(BaseModel):
         Uuid, ForeignKey("users.id"), index=True
     )
     source: Mapped[str] = mapped_column(String(30), default="WEB", nullable=False)
+    current_tier: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    sla_breached: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # MDDR checkpoints: occurred -> detected -> diagnosed -> resolved (resolved_at below)
+    occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    detected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    diagnosed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -361,6 +368,7 @@ class Ticket(BaseModel):
     histories: Mapped[list[TicketHistory]] = relationship(back_populates="ticket")
     comments: Mapped[list[TicketComment]] = relationship(back_populates="ticket")
     attachments: Mapped[list[TicketAttachment]] = relationship(back_populates="ticket")
+    escalations: Mapped[list[TicketEscalation]] = relationship(back_populates="ticket")
 
 
 class TicketNumberSequence(Base):
@@ -387,6 +395,42 @@ class TicketAssignment(BaseModel):
     ticket: Mapped[Ticket] = relationship(back_populates="assignments")
 
 
+class TicketEscalation(BaseModel):
+    """Structured functional/technical escalation history (e.g. T1 -> T2 -> T3)."""
+
+    __tablename__ = "ticket_escalations"
+    __table_args__ = (
+        Index(
+            "ix_ticket_escalations_ticket_escalated", "ticket_id", "escalated_at"
+        ),
+    )
+    ticket_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("tickets.id"), nullable=False, index=True
+    )
+    escalation_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    from_tier: Mapped[int] = mapped_column(Integer, nullable=False)
+    to_tier: Mapped[int] = mapped_column(Integer, nullable=False)
+    from_department_id: Mapped[UUID | None] = mapped_column(
+        Uuid, ForeignKey("departments.id")
+    )
+    to_department_id: Mapped[UUID | None] = mapped_column(
+        Uuid, ForeignKey("departments.id")
+    )
+    reason_code: Mapped[str | None] = mapped_column(String(50))
+    comment: Mapped[str | None] = mapped_column(Text)
+    escalated_by: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("users.id"))
+    escalated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    ticket: Mapped[Ticket] = relationship(back_populates="escalations")
+    from_department: Mapped[Department | None] = relationship(
+        foreign_keys=[from_department_id]
+    )
+    to_department: Mapped[Department | None] = relationship(
+        foreign_keys=[to_department_id]
+    )
+
+
 class TicketHistory(BaseModel):
     __tablename__ = "ticket_histories"
     ticket_id: Mapped[UUID] = mapped_column(
@@ -406,12 +450,20 @@ class TicketHistory(BaseModel):
 
 class TicketComment(BaseModel):
     __tablename__ = "ticket_comments"
+    __table_args__ = (
+        Index("ix_ticket_comments_ticket_update_type", "ticket_id", "update_type"),
+    )
     ticket_id: Mapped[UUID] = mapped_column(
         Uuid, ForeignKey("tickets.id"), nullable=False, index=True
     )
     user_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False)
     comment: Mapped[str] = mapped_column(Text, nullable=False)
     is_internal: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # "NOTE" (general internal note) or "TECHNICAL_UPDATE" (investigation/diagnosis
+    # progress entry surfaced on the T2/T3 investigation timeline).
+    update_type: Mapped[str] = mapped_column(
+        String(20), default="NOTE", server_default="NOTE", nullable=False
+    )
     ticket: Mapped[Ticket] = relationship(back_populates="comments")
     mentions: Mapped[list[TicketCommentMention]] = relationship(
         back_populates="comment", cascade="all, delete-orphan"
