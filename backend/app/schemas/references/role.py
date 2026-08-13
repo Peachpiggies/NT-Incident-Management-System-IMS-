@@ -19,8 +19,9 @@ from pydantic import BaseModel, ConfigDict, Field
 class RoleBase(BaseModel):
     """Shared role fields."""
 
-    name: str = Field(..., min_length=1, max_length=100)
-    description: str | None = Field(None, max_length=500)
+    code: str = Field(..., min_length=2, max_length=100, pattern=r"^[a-z0-9._-]+$")
+    name: str = Field(..., min_length=2, max_length=100)
+    description: str | None = None
 
 
 # ==========================================================
@@ -35,8 +36,9 @@ class RoleCreate(RoleBase):
 class RoleUpdate(BaseModel):
     """Update a role. All fields optional."""
 
-    name: str | None = Field(None, min_length=1, max_length=100)
-    description: str | None = Field(None, max_length=500)
+    code: str | None = Field(None, min_length=2, max_length=100, pattern=r"^[a-z0-9._-]+$")
+    name: str | None = Field(None, min_length=2, max_length=100)
+    description: str | None = None
 
 
 # ==========================================================
@@ -50,7 +52,9 @@ class RoleResponse(RoleBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    is_system: bool
     created_at: datetime
+    updated_at: datetime
 
 
 class RoleBrief(BaseModel):
@@ -69,3 +73,22 @@ class RoleListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+# ==========================================================
+# User <-> Role assignment
+# ==========================================================
+
+
+class UserRoleResponse(BaseModel):
+    """
+    A single role assignment (row in the `user_roles` junction table),
+    with the assigned role expanded inline.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    user_id: UUID
+    role: RoleResponse
+    created_at: datetime

@@ -19,8 +19,11 @@ from pydantic import BaseModel, ConfigDict, Field
 class DepartmentBase(BaseModel):
     """Shared department fields."""
 
-    name: str = Field(..., min_length=1, max_length=100)
-    description: str | None = Field(None, max_length=500)
+    code: str = Field(..., min_length=2, max_length=50, pattern=r"^[A-Z0-9_]+$")
+    name: str = Field(..., min_length=2, max_length=160)
+    description: str | None = None
+    parent_department_id: UUID | None = None
+    is_active: bool = True
 
 
 # ==========================================================
@@ -35,8 +38,11 @@ class DepartmentCreate(DepartmentBase):
 class DepartmentUpdate(BaseModel):
     """Update a department. All fields optional."""
 
-    name: str | None = Field(None, min_length=1, max_length=100)
-    description: str | None = Field(None, max_length=500)
+    code: str | None = Field(None, min_length=2, max_length=50, pattern=r"^[A-Z0-9_]+$")
+    name: str | None = Field(None, min_length=2, max_length=160)
+    description: str | None = None
+    parent_department_id: UUID | None = None
+    is_active: bool | None = None
 
 
 # ==========================================================
@@ -51,6 +57,7 @@ class DepartmentResponse(DepartmentBase):
 
     id: UUID
     created_at: datetime
+    updated_at: datetime
 
 
 class DepartmentListResponse(BaseModel):
