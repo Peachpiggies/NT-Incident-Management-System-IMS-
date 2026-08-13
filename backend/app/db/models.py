@@ -136,6 +136,13 @@ class User(BaseModel):
         back_populates="user", foreign_keys="RefreshToken.user_id"
     )
 
+    @property
+    def full_name(self) -> str:
+        """Convenience alias for schemas (e.g. CommentAuthor) that display a
+        single display name rather than first_name/last_name separately.
+        """
+        return f"{self.first_name} {self.last_name}".strip()
+
 
 class UserRole(BaseModel):
     __tablename__ = "user_roles"

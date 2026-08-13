@@ -3,6 +3,7 @@ Ticket schemas.
 """
 
 from datetime import datetime
+from enum import Enum
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -16,6 +17,27 @@ from app.schemas.common import (
     StatusSummary,
     UserSummary,
 )
+
+
+# ==========================================================
+# Workflow enums
+# ==========================================================
+# NOTE: these mirror TicketEscalation.escalation_type and the MDDR checkpoint
+# columns on Ticket (app/services/ticket_workflow.py). The comment update-type
+# enum (NOTE / TECHNICAL_UPDATE) lives in app.schemas.comment instead, since
+# comments already have their own schema module.
+
+
+class TicketEscalationType(str, Enum):
+    FUNCTIONAL = "FUNCTIONAL"
+    TECHNICAL = "TECHNICAL"
+
+
+class TicketMDDRCheckpoint(str, Enum):
+    OCCURRED = "occurred_at"
+    DETECTED = "detected_at"
+    DIAGNOSED = "diagnosed_at"
+    RESOLVED = "resolved_at"
 
 
 # ==========================================================
@@ -106,6 +128,38 @@ class TicketPriorityUpdate(BaseModel):
 
 
 # ==========================================================
+# Escalation (T1 -> T2 -> T3)
+# ==========================================================
+
+
+class TicketEscalate(BaseModel):
+
+    escalation_type: TicketEscalationType
+
+    to_tier: int = Field(..., ge=1, le=3)
+
+    to_department_id: UUID | None = None
+
+    reason_code: str | None = Field(default=None, max_length=50)
+
+    comment: str | None = Field(default=None, max_length=4000)
+
+    allow_tier_skip: bool = False
+
+
+# ==========================================================
+# MDDR checkpoints
+# ==========================================================
+
+
+class TicketCheckpointUpdate(BaseModel):
+
+    checkpoint: TicketMDDRCheckpoint
+
+    at: datetime | None = None
+
+
+# ==========================================================
 # Search
 # ==========================================================
 
@@ -187,6 +241,72 @@ class TicketDetail(BaseModel):
     status_id: UUID
 
     # keep the rest of your existing fields unchanged
+
+
+# ==========================================================
+# Assignment history
+# ==========================================================
+
+
+class TicketAssignmentSummary(BaseModel):
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+
+    ticket_id: UUID
+
+    assigned_from: UUID | None = None
+
+    assigned_to: UUID
+
+    reason: str | None = None
+
+    assigned_at: datetime
+
+
+# ==========================================================
+# Escalation history
+# ==========================================================
+
+
+class TicketEscalationSummary(BaseModel):
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+
+    ticket_id: UUID
+
+    escalation_type: str
+
+    from_tier: int
+
+    to_tier: int
+
+    from_department: DepartmentSummary | None = None
+
+    to_department: DepartmentSummary | None = None
+
+    reason_code: str | None = None
+
+    comment: str | None = None
+
+    escalated_by: UUID | None = None
+
+    escalated_at: datetime
+
+
+# ==========================================================
+# SLA
+# ==========================================================
+
+
+class TicketSlaStatus(BaseModel):
+
+    ticket_id: UUID
+
+    sla_breached: bool
 
 
 # ==========================================================
