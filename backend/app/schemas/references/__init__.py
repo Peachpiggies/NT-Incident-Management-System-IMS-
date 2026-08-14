@@ -1,176 +1,589 @@
 """
-Reference/lookup schemas package.
+Pydantic schemas package.
 
-Re-exports schemas for entities that are mostly used as lookups or
-foreign-key references from other schemas (users, roles, departments,
-priorities, statuses, categories).
+Re-exports all request/response schemas so they can be imported
+directly from `app.schemas` instead of the individual submodules.
 """
 
-from app.schemas.references.category import (
+from app.schemas.attachments import (
 
-    CategoryCreate,
+    AttachmentBase,
 
-    CategoryListResponse,
+    AttachmentListResponse,
 
-    CategoryResponse,
+    AttachmentResponse,
 
-    CategoryUpdate,
+    AttachmentSummary,
 
-)
-
-from app.schemas.references.department import (
-
-    DepartmentCreate,
-
-    DepartmentListResponse,
-
-    DepartmentRequest,
-
-    DepartmentResponse,
-
-    DepartmentUpdate,
+    AttachmentUpload,
 
 )
 
-from app.schemas.references.priority import (
+from app.schemas.auth import (
 
-    PriorityCreate,
+    ChangePasswordRequest,
 
-    PriorityListResponse,
+    CurrentUser,
 
-    PriorityResponse,
+    ForgotPasswordRequest,
 
-    PriorityUpdate,
+    LoginRequest,
 
-)
+    LoginResponse,
 
-from app.schemas.references.role import (
+    LogoutRequest,
 
-    RoleBrief,
+    MessageResponse,
 
-    RoleCreate,
+    RefreshTokenRequest,
 
-    RoleListResponse,
+    RegisterRequest,
 
-    RoleRequest,
+    SessionResponse,
 
-    RoleResponse,
+    Token,
 
-    RoleUpdate,
-
-)
-
-from app.schemas.references.service import (
-
-    ServiceBrief,
-
-    ServiceCreate,
-
-    ServiceListResponse,
-
-    ServiceResponse,
-
-    ServiceUpdate,
+    TokenPayload,
 
 )
 
-from app.schemas.references.status import (
+from app.schemas.comment import (
 
-    StatusCreate,
+    CommentAuthor,
 
-    StatusListResponse,
+    CommentBase,
 
-    StatusResponse,
+    CommentCreate,
 
-    StatusUpdate,
+    CommentListResponse,
 
-)
+    CommentResponse,
 
-from app.schemas.references.subcategory import (
-
-    SubcategoryBrief,
-
-    SubcategoryCreate,
-
-    SubcategoryListResponse,
-
-    SubcategoryResponse,
-
-    SubcategoryUpdate,
+    CommentUpdate,
 
 )
 
-from app.schemas.references.user import (
+from app.schemas.dashboard import (
+    
+    ChartDataPoint,
+    
+    DashboardOverviewResponse,
+    
+    DashboardSummaryResponse,
+    
+    DepartmentBreakdown,
+    
+    RecentActivityItem,
+    
+    TimeSeriesPoint,
+    
+)
 
-    UserCreate,
+from app.schemas.notification import (
+    
+    EscalationNotificationCreate,
+    
+    EscalationNotificationResponse,
+    
+    MarkAllReadResponse,
+    
+    NotificationBroadcastCreate,
+    
+    NotificationChannel,
+    
+    NotificationCreate,
+    
+    NotificationDeliveryStatus,
+    
+    NotificationHistoryListResponse,
+    
+    NotificationHistoryResponse,
+    
+    NotificationListResponse,
+    
+    NotificationResponse,
+    
+    NotificationRuleCreate,
+    
+    NotificationRuleListResponse,
+    
+    NotificationRuleResponse,
+    
+    NotificationRuleUpdate,
+    
+    NotificationType,
+    
+    NotificationUpdate,
+    
+    UnreadCountResponse,
+    
+)
 
-    UserCreateRequest,
+from app.schemas.sla_engine import (
 
-    UserListResponse,
+    SLABreachListResponse,
 
-    UserResponse,
+    SLABreachResponse,
 
-    UserUpdate,
+    SLAEscalationTriggerCreate,
 
-    UserUpdateRequest,
+    SLAEscalationTriggerListResponse,
+
+    SLAEscalationTriggerResponse,
+
+    SLAEscalationTriggerUpdate,
+
+    SLAPauseRuleCreate,
+
+    SLAPauseRuleResponse,
+
+    SLAPolicyCreate,
+
+    SLAPolicyListResponse,
+
+    SLAPolicyResponse,
+
+    SLAPolicyUpdate,
+
+    SLATargetCreate,
+
+    SLATargetResponse,
+
+    SLATargetUpdate,
+
+    SLATimerPause,
+
+    SLATimerResponse,
+
+    SLATimerResume,
+
+    SlaBreachStatus,
+
+    SlaMetricType,
+
+    SlaTimerState,
+
+)
+
+from app.schemas.knowledge_base import (
+
+    ArticleStatus,
+
+    KBArticleArchive,
+
+    KBArticleCreate,
+
+    KBArticleIncidentLinkCreate,
+
+    KBArticleIncidentLinkListResponse,
+
+    KBArticleIncidentLinkResponse,
+
+    KBArticleListResponse,
+
+    KBArticleResponse,
+
+    KBArticleReviewDecision,
+
+    KBArticleStatusResponse,
+
+    KBArticleSubmitForReview,
+
+    KBArticleSummary,
+
+    KBArticleUpdate,
+
+    KBArticleVersionListResponse,
+
+    KBArticleVersionResponse,
+
+    KBCategoryCreate,
+
+    KBCategoryListResponse,
+
+    KBCategoryResponse,
+
+    KBCategoryUpdate,
+
+)
+
+from app.schemas.rca import (
+
+    BusinessImpactLevel,
+
+    ContributingFactorCreate,
+
+    ContributingFactorResponse,
+
+    ContributingFactorUpdate,
+
+    ImpactAnalysisCreate,
+
+    ImpactAnalysisResponse,
+
+    ImpactAnalysisUpdate,
+
+    RCAReportApprove,
+
+    RCAReportCreate,
+
+    RCAReportListResponse,
+
+    RCAReportResponse,
+
+    RCAReportStatus,
+
+    RCAReportUpdate,
+
+    RootCauseCreate,
+
+    RootCauseResponse,
+
+    RootCauseUpdate,
+
+)
+
+from app.schemas.problem import (
+
+    KnownErrorCreate,
+
+    KnownErrorListResponse,
+
+    KnownErrorResponse,
+
+    KnownErrorUpdate,
+
+    PermanentFixCreate,
+
+    PermanentFixResponse,
+
+    PermanentFixUpdate,
+
+    ProblemCreate,
+
+    ProblemIncidentLinkCreate,
+
+    ProblemIncidentLinkListResponse,
+
+    ProblemIncidentLinkResponse,
+
+    ProblemListResponse,
+
+    ProblemResponse,
+
+    ProblemStatus,
+
+    ProblemStatusUpdate,
+
+    ProblemSummary,
+
+    ProblemUpdate,
+
+    WorkaroundCreate,
+
+    WorkaroundEffectiveness,
+
+    WorkaroundListResponse,
+
+    WorkaroundResponse,
+
+    WorkaroundUpdate,
+
+)
+
+from app.schemas.change_management import (
+
+    ApprovalDecision,
+
+    ChangeApprovalCreate,
+
+    ChangeApprovalListResponse,
+
+    ChangeApprovalResponse,
+
+    ChangeImplementationCreate,
+
+    ChangeImplementationResponse,
+
+    ChangeImplementationUpdate,
+
+    ChangeRequestCreate,
+
+    ChangeRequestListResponse,
+
+    ChangeRequestResponse,
+
+    ChangeRequestSummary,
+
+    ChangeRequestUpdate,
+
+    ChangeRollbackCreate,
+
+    ChangeRollbackResponse,
+
+    ChangeStatus,
+
+    ChangeType,
+
+    ChangeValidationCreate,
+
+    ChangeValidationResponse,
+
+    RiskAssessmentCreate,
+
+    RiskAssessmentResponse,
+
+    RiskAssessmentUpdate,
+
+    RiskLevel,
+
+)
+
+from app.schemas.vendor import (
+
+    ContractStatus,
+
+    VendorContactCreate,
+
+    VendorContactResponse,
+
+    VendorContactUpdate,
+
+    VendorContractCreate,
+
+    VendorContractListResponse,
+
+    VendorContractResponse,
+
+    VendorContractUpdate,
+
+    VendorCreate,
+
+    VendorIncidentCreate,
+
+    VendorIncidentListResponse,
+
+    VendorIncidentResponse,
+
+    VendorIncidentStatus,
+
+    VendorIncidentUpdate,
+
+    VendorListResponse,
+
+    VendorPerformanceCreate,
+
+    VendorPerformanceListResponse,
+
+    VendorPerformanceResponse,
+
+    VendorResponse,
+
+    VendorSLACreate,
+
+    VendorSLAResponse,
+
+    VendorSLAUpdate,
+
+    VendorSummary,
+
+    VendorUpdate,
 
 )
 
 __all__ = [
-    
-    # category
-    "CategoryCreate",
-    "CategoryListResponse",
-    "CategoryResponse",
-    "CategoryUpdate",
-    
-    # department
-    "DepartmentCreate",
-    "DepartmentListResponse",
-    "DepartmentRequest",
-    "DepartmentResponse",
-    "DepartmentUpdate",
-    
-    # priority
-    "PriorityCreate",
-    "PriorityListResponse",
-    "PriorityResponse",
-    "PriorityUpdate",
-    
-    # role
-    "RoleBrief",
-    "RoleCreate",
-    "RoleListResponse",
-    "RoleRequest",
-    "RoleResponse",
-    "RoleUpdate",
-    
-    # service
-    "ServiceBrief",
-    "ServiceCreate",
-    "ServiceListResponse",
-    "ServiceResponse",
-    "ServiceUpdate",
-    
-    # status
-    "StatusCreate",
-    "StatusListResponse",
-    "StatusResponse",
-    "StatusUpdate",
-    
-    # subcategory
-    "SubcategoryBrief",
-    "SubcategoryCreate",
-    "SubcategoryListResponse",
-    "SubcategoryResponse",
-    "SubcategoryUpdate",
-    
-    # user
-    "UserCreate",
-    "UserCreateRequest",
-    "UserListResponse",
-    "UserResponse",
-    "UserUpdate",
-    "UserUpdateRequest",
-    
+
+    # attachments
+    "AttachmentBase",
+    "AttachmentListResponse",
+    "AttachmentResponse",
+    "AttachmentSummary",
+    "AttachmentUpload",
+
+    # auth
+    "ChangePasswordRequest",
+    "CurrentUser",
+    "ForgotPasswordRequest",
+    "LoginRequest",
+    "LoginResponse",
+    "LogoutRequest",
+    "MessageResponse",
+    "RefreshTokenRequest",
+    "RegisterRequest",
+    "SessionResponse",
+    "Token",
+    "TokenPayload",
+
+    # comment
+    "CommentAuthor",
+    "CommentBase",
+    "CommentCreate",
+    "CommentListResponse",
+    "CommentResponse",
+    "CommentUpdate",
+
+    # dashboard
+    "ChartDataPoint",
+    "DashboardOverviewResponse",
+    "DashboardSummaryResponse",
+    "DepartmentBreakdown",
+    "RecentActivityItem",
+    "TimeSeriesPoint",
+
+    # notification
+    "EscalationNotificationCreate",
+    "EscalationNotificationResponse",
+    "MarkAllReadResponse",
+    "NotificationBroadcastCreate",
+    "NotificationChannel",
+    "NotificationCreate",
+    "NotificationDeliveryStatus",
+    "NotificationHistoryListResponse",
+    "NotificationHistoryResponse",
+    "NotificationListResponse",
+    "NotificationResponse",
+    "NotificationRuleCreate",
+    "NotificationRuleListResponse",
+    "NotificationRuleResponse",
+    "NotificationRuleUpdate",
+    "NotificationType",
+    "NotificationUpdate",
+    "UnreadCountResponse",
+
+    # sla
+    "SLABreachListResponse",
+    "SLABreachResponse",
+    "SLAEscalationTriggerCreate",
+    "SLAEscalationTriggerListResponse",
+    "SLAEscalationTriggerResponse",
+    "SLAEscalationTriggerUpdate",
+    "SLAPauseRuleCreate",
+    "SLAPauseRuleResponse",
+    "SLAPolicyCreate",
+    "SLAPolicyListResponse",
+    "SLAPolicyResponse",
+    "SLAPolicyUpdate",
+    "SLATargetCreate",
+    "SLATargetResponse",
+    "SLATargetUpdate",
+    "SLATimerPause",
+    "SLATimerResponse",
+    "SLATimerResume",
+    "SlaBreachStatus",
+    "SlaMetricType",
+    "SlaTimerState",
+
+    # knowledge_base
+    "ArticleStatus",
+    "KBArticleArchive",
+    "KBArticleCreate",
+    "KBArticleIncidentLinkCreate",
+    "KBArticleIncidentLinkListResponse",
+    "KBArticleIncidentLinkResponse",
+    "KBArticleListResponse",
+    "KBArticleResponse",
+    "KBArticleReviewDecision",
+    "KBArticleStatusResponse",
+    "KBArticleSubmitForReview",
+    "KBArticleSummary",
+    "KBArticleUpdate",
+    "KBArticleVersionListResponse",
+    "KBArticleVersionResponse",
+    "KBCategoryCreate",
+    "KBCategoryListResponse",
+    "KBCategoryResponse",
+    "KBCategoryUpdate",
+
+    # rca
+    "BusinessImpactLevel",
+    "ContributingFactorCreate",
+    "ContributingFactorResponse",
+    "ContributingFactorUpdate",
+    "ImpactAnalysisCreate",
+    "ImpactAnalysisResponse",
+    "ImpactAnalysisUpdate",
+    "RCAReportApprove",
+    "RCAReportCreate",
+    "RCAReportListResponse",
+    "RCAReportResponse",
+    "RCAReportStatus",
+    "RCAReportUpdate",
+    "RootCauseCreate",
+    "RootCauseResponse",
+    "RootCauseUpdate",
+
+    # problem
+    "KnownErrorCreate",
+    "KnownErrorListResponse",
+    "KnownErrorResponse",
+    "KnownErrorUpdate",
+    "PermanentFixCreate",
+    "PermanentFixResponse",
+    "PermanentFixUpdate",
+    "ProblemCreate",
+    "ProblemIncidentLinkCreate",
+    "ProblemIncidentLinkListResponse",
+    "ProblemIncidentLinkResponse",
+    "ProblemListResponse",
+    "ProblemResponse",
+    "ProblemStatus",
+    "ProblemStatusUpdate",
+    "ProblemSummary",
+    "ProblemUpdate",
+    "WorkaroundCreate",
+    "WorkaroundEffectiveness",
+    "WorkaroundListResponse",
+    "WorkaroundResponse",
+    "WorkaroundUpdate",
+
+    # change_management
+    "ApprovalDecision",
+    "ChangeApprovalCreate",
+    "ChangeApprovalListResponse",
+    "ChangeApprovalResponse",
+    "ChangeImplementationCreate",
+    "ChangeImplementationResponse",
+    "ChangeImplementationUpdate",
+    "ChangeRequestCreate",
+    "ChangeRequestListResponse",
+    "ChangeRequestResponse",
+    "ChangeRequestSummary",
+    "ChangeRequestUpdate",
+    "ChangeRollbackCreate",
+    "ChangeRollbackResponse",
+    "ChangeStatus",
+    "ChangeType",
+    "ChangeValidationCreate",
+    "ChangeValidationResponse",
+    "RiskAssessmentCreate",
+    "RiskAssessmentResponse",
+    "RiskAssessmentUpdate",
+    "RiskLevel",
+
+    # vendor
+    "ContractStatus",
+    "VendorContactCreate",
+    "VendorContactResponse",
+    "VendorContactUpdate",
+    "VendorContractCreate",
+    "VendorContractListResponse",
+    "VendorContractResponse",
+    "VendorContractUpdate",
+    "VendorCreate",
+    "VendorIncidentCreate",
+    "VendorIncidentListResponse",
+    "VendorIncidentResponse",
+    "VendorIncidentStatus",
+    "VendorIncidentUpdate",
+    "VendorListResponse",
+    "VendorPerformanceCreate",
+    "VendorPerformanceListResponse",
+    "VendorPerformanceResponse",
+    "VendorResponse",
+    "VendorSLACreate",
+    "VendorSLAResponse",
+    "VendorSLAUpdate",
+    "VendorSummary",
+    "VendorUpdate",
+
 ]
