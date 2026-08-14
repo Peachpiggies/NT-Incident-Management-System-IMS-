@@ -425,6 +425,14 @@ class TicketEscalation(BaseModel):
             "escalation_type <> 'TECHNICAL' OR to_tier > from_tier",
             name="ck_ticket_escalations_technical_requires_tier_increase",
         ),
+        CheckConstraint(
+            "escalation_type <> 'TECHNICAL' OR "
+            "(reason_code IS NOT NULL AND reason_code IN ("
+            "'SKILL_REQUIRED', 'COMPLEXITY', 'ACCESS_REQUIRED', "
+            "'SYSTEM_DEPENDENCY', 'UNRESOLVED_AFTER_ATTEMPTS', "
+            "'SLA_RISK', 'MDDR_RISK'))",
+            name="ck_ticket_escalations_technical_requires_reason",
+        ),
     )
     ticket_id: Mapped[UUID] = mapped_column(
         Uuid, ForeignKey("tickets.id"), nullable=False, index=True
