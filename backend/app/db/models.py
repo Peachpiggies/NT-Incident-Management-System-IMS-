@@ -357,6 +357,18 @@ class Ticket(BaseModel):
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Resolution requirement: the resolver must record what was actually done
+    # to fix the issue before the ticket can transition into a resolved state.
+    # Nullable at the DB layer (older rows predate this field) but the
+    # /resolve endpoint must enforce it as required input.
+    resolution_summary: Mapped[str | None] = mapped_column(Text)
+    resolution_code: Mapped[str | None] = mapped_column(String(50))
+    # Incremented by the /reopen and /reject endpoints every time a ticket
+    # is sent back from a resolved/closed state, instead of being derived
+    # on the fly from TicketHistory.
+    reopen_count: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
     requester: Mapped[User] = relationship(foreign_keys=[requester_id])
     assignee: Mapped[User | None] = relationship(foreign_keys=[assigned_to])
 
