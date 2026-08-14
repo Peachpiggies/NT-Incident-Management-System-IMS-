@@ -97,6 +97,23 @@ class TicketTechnicalEscalationRequest(BaseModel):
     allow_tier_skip: bool = False
 
 
+class TicketConfirmationRequest(BaseModel):
+    """Customer accepts the resolution. See POST /tickets/{id}/confirm."""
+
+    feedback: str | None = Field(default=None, max_length=4000)
+
+
+class TicketRejectionRequest(BaseModel):
+    """Customer rejects the resolution and the ticket goes back to work.
+
+    `reason` is required -- an unexplained reject gives the receiving
+    agent nothing to act on, so unlike TicketConfirmationRequest.feedback
+    this is not optional.
+    """
+
+    reason: str = Field(min_length=1, max_length=4000)
+
+
 class TicketEscalationResponse(BaseModel):
     id: UUID
     ticket_id: UUID
@@ -1397,6 +1414,113 @@ async def reopen_ticket(
             ticket,
             "Ticket reopened",
             f"{ticket.ticket_no} has been reopened.",
+            "ticket_update",
+        )
+    )
+    await commit_ticket_transaction(db)
+    await _refresh_ticket_detail(db, ticket)
+    return ticket
+
+
+# --------------------------------------------------------------------
+# Customer Confirmation (4.8): the final RESOLVED -> {CLOSED, REOPENED-ish}
+# branch. Only the ticket requester may confirm/reject their own ticket's
+# resolution -- a supervisor/agent confirming on the customer's behalf
+# would defeat the point of asking the customer at all -- unless they hold
+# the "*_any" override permission (e.g. an agent confirming by phone on the
+# customer's explicit say-so). Both endpoints reuse the RESOLVED-status
+# transition edges already required for /resolve and /reopen to exist, so
+# no new TicketStatusTransition seed rows are needed beyond what those two
+# endpoints already depend on.
+#
+# NOTE: the current `Ticket` schema has no dedicated reopen_reason /
+# reopened_by / reopened_at / reopen_count / previous_resolution columns
+# (see 4.6 Reopen Flow). Until those are added, /reject records the
+# customer's reason in the TicketHistory remark via `action` below --
+# it's queryable (`TicketHistory.action == "ticket.reject"`) but not yet
+# aggregable the way a real reopen_count column would be.
+# --------------------------------------------------------------------
+
+
+async def _assert_requester_or_override(
+    ticket: Ticket, current_user: User, db: AsyncSession, *, override_permission: str
+) -> None:
+    if ticket.requester_id == current_user.id:
+        return
+    if await user_has_permission(db, current_user.id, override_permission):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Only the ticket requester can confirm or reject its resolution",
+    )
+
+
+@router.post("/tickets/{ticket_id}/confirm", response_model=TicketResponse)
+async def confirm_ticket(
+    ticket_id: UUID,
+    payload: TicketConfirmationRequest,
+    current_user: Annotated[User, Depends(require_permission("ticket.confirm"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Ticket:
+    """Customer confirms the resolution actually fixed things -> CLOSED."""
+    ticket = await _get_ticket_or_404(ticket_id, db)
+    await _assert_requester_or_override(
+        ticket, current_user, db, override_permission="ticket.confirm_any"
+    )
+    ticket.closed_at = datetime.now(timezone.utc)
+    await TicketWorkflowService(db).transition_to_code(
+        ticket,
+        "CLOSED",
+        current_user,
+        action="ticket.confirm",
+        remark=payload.feedback or "Customer confirmed the resolution",
+    )
+    db.add(
+        _notification(
+            ticket.assigned_to or ticket.requester_id,
+            ticket,
+            "Resolution confirmed",
+            f"Customer confirmed the resolution on {ticket.ticket_no}.",
+            "ticket_update",
+        )
+    )
+    await commit_ticket_transaction(db)
+    await _refresh_ticket_detail(db, ticket)
+    return ticket
+
+
+@router.post("/tickets/{ticket_id}/reject", response_model=TicketResponse)
+async def reject_ticket(
+    ticket_id: UUID,
+    payload: TicketRejectionRequest,
+    current_user: Annotated[User, Depends(require_permission("ticket.reject"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Ticket:
+    """Customer rejects the resolution ("ยังใช้งานไม่ได้ครับ") -> back to work.
+
+    Routes to the same target status /reopen uses (ASSIGNED if the ticket
+    still has an assignee, otherwise NEW) so both entry points land the
+    ticket in a consistent place. Unlike /reopen, a reason is mandatory and
+    is recorded on the TicketHistory row this transition writes.
+    """
+    ticket = await _get_ticket_or_404(ticket_id, db)
+    await _assert_requester_or_override(
+        ticket, current_user, db, override_permission="ticket.reject_any"
+    )
+    ticket.resolved_at = None
+    await TicketWorkflowService(db).transition_to_code(
+        ticket,
+        "ASSIGNED" if ticket.assigned_to else "NEW",
+        current_user,
+        action="ticket.reject",
+        remark=payload.reason,
+    )
+    db.add(
+        _notification(
+            ticket.assigned_to or ticket.requester_id,
+            ticket,
+            "Resolution rejected",
+            f"Customer rejected the resolution on {ticket.ticket_no}: {payload.reason}",
             "ticket_update",
         )
     )
