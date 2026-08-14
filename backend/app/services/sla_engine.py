@@ -6,7 +6,7 @@ them, writes a `TicketHistory` audit row where the mutation is
 ticket-visible, and `session.flush()`es -- but never `commit()`s. Committing
 (and rolling back on error) is the caller's responsibility.
 
-Two halves:
+Three halves:
   - Policy matching: `match_sla_policy` picks the best-fit SLAPolicy for a
     ticket's department/category/subcategory/service/priority. Lower
     `match_priority` wins; ties broken by whichever policy is more specific
@@ -14,8 +14,14 @@ Two halves:
   - Timer lifecycle: `start_sla_timers` creates one TicketSlaTimer per
     RESPONSE/RESOLUTION target on the matched policy; `pause_sla_timer` /
     `resume_sla_timer` track paused time and push `due_at` out by however
-    long the pause lasted; `mark_timer_met` / `evaluate_timer_breach` close
-    a timer out.
+    long the pause lasted; `mark_timer_met` / `evaluate_timer_breach` /
+    `cancel_sla_timer` close a timer out; `evaluate_breaches` sweeps every
+    RUNNING timer past due.
+  - Escalation: `evaluate_escalations` sweeps timers approaching (WARNING)
+    or past (BREACH) their target and fires any matching, not-yet-fired
+    SLAEscalationTrigger for that policy/metric_type, recording an
+    SLAEscalationEvent per firing so the same trigger never fires twice for
+    the same timer.
 
 Business-hours calendars aren't modeled yet (SLAPolicy.business_hours_only
 exists as a flag with no calendar table behind it). `start_sla_timers`
@@ -40,6 +46,8 @@ from sqlalchemy import case, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
+    SLAEscalationEvent,
+    SLAEscalationTrigger,
     SLAPolicy,
     SLATarget,
     Ticket,
@@ -126,6 +134,19 @@ def _apply_pause_resume_math(timer: TicketSlaTimer, at: datetime) -> None:
         timer.total_paused_seconds += int(elapsed)
         timer.due_at = timer.due_at + timedelta(seconds=elapsed)
     timer.paused_at = None
+
+
+def _elapsed_percent(timer: TicketSlaTimer, at: datetime) -> float:
+    """% of the timer's target duration that has actually elapsed, with
+    paused time excluded -- mirrors the pause-aware math in
+    _apply_pause_resume_math rather than just comparing `at` to `due_at`
+    (which would count paused time against the ticket).
+    """
+    target_seconds = timer.target_minutes * 60
+    if target_seconds <= 0:
+        return 0.0
+    elapsed_seconds = (at - timer.started_at).total_seconds() - timer.total_paused_seconds
+    return max(0.0, elapsed_seconds / target_seconds * 100)
 
 
 # --------------------------------------------------------------------------
@@ -531,3 +552,168 @@ def cancel_sla_timer(
     )
     session.flush()
     return timer
+
+
+# --------------------------------------------------------------------------
+# Escalation
+# --------------------------------------------------------------------------
+
+
+def _matching_triggers(
+    session: Session, policy_id, trigger_on: str, metric_type: str
+) -> list[SLAEscalationTrigger]:
+    stmt = select(SLAEscalationTrigger).where(
+        SLAEscalationTrigger.policy_id == policy_id,
+        SLAEscalationTrigger.trigger_on == trigger_on,
+        SLAEscalationTrigger.is_active.is_(True),
+        or_(
+            SLAEscalationTrigger.metric_type.is_(None),
+            SLAEscalationTrigger.metric_type == metric_type,
+        ),
+    )
+    return session.execute(stmt).scalars().all()
+
+
+def _already_fired(session: Session, trigger_id, timer_id) -> bool:
+    stmt = select(SLAEscalationEvent.id).where(
+        SLAEscalationEvent.trigger_id == trigger_id,
+        SLAEscalationEvent.timer_id == timer_id,
+    )
+    return session.execute(stmt).first() is not None
+
+
+def _fire_trigger(
+    session: Session,
+    trigger: SLAEscalationTrigger,
+    timer: TicketSlaTimer,
+    ticket: Ticket,
+    *,
+    at: datetime,
+    notify: Callable[[TicketSlaTimer, SLAEscalationTrigger], None] | None,
+) -> SLAEscalationEvent:
+    event = SLAEscalationEvent(
+        trigger_id=trigger.id,
+        timer_id=timer.id,
+        ticket_id=ticket.id,
+        trigger_on=trigger.trigger_on,
+        fired_at=at,
+    )
+    session.add(event)
+    _record_history(
+        session,
+        ticket,
+        action="SLA_ESCALATION_FIRED",
+        field=timer.metric_type,
+        new_value=trigger.trigger_on,
+        remark=f"trigger={trigger.id}",
+    )
+    if notify is not None:
+        # Left to the caller rather than sent from here, same
+        # dependency-injection shape as start_sla_timers' resolve_due_at --
+        # this module doesn't know how EscalationNotificationCreate rows
+        # get dispatched (email/in-app/websocket), only that a trigger
+        # fired and who/what it should reach.
+        notify(timer, trigger)
+    return event
+
+
+def evaluate_escalations(
+    session: Session,
+    *,
+    as_of: datetime | None = None,
+    limit: int = 500,
+    notify: Callable[[TicketSlaTimer, SLAEscalationTrigger], None] | None = None,
+) -> list[SLAEscalationEvent]:
+    """Sweep timers approaching or past their target and fire any matching,
+    not-yet-fired SLAEscalationTrigger.
+
+    Two independent passes, mirroring the two `SLAEscalationTriggerOn`
+    values:
+      - WARNING: RUNNING timers whose elapsed time (pause-excluded, via
+        `_elapsed_percent`) has crossed their target's
+        `warning_threshold_pct`. A timer can only warn once it's actually
+        RUNNING -- a PAUSED timer's elapsed time is frozen, same reasoning
+        as `evaluate_timer_breach` only evaluating RUNNING timers.
+      - BREACH: timers already in BREACHED status (i.e. after
+        `evaluate_timer_breach`/`evaluate_breaches` has run).
+
+    A trigger fires at most once per timer: `_already_fired` checks
+    SLAEscalationEvent before calling `_fire_trigger`, so re-running this
+    sweep (e.g. every few minutes via the same scheduler that drives
+    `evaluate_breaches`) doesn't re-notify anyone for a threshold already
+    crossed. `limit` caps timers considered per pass, same reasoning as
+    `evaluate_breaches`: drain a large backlog over several runs rather
+    than holding the session open for one giant sweep.
+
+    Does not call `evaluate_breaches` itself -- run that first (or trust an
+    earlier scheduled run already flipped the relevant timers to BREACHED)
+    so the BREACH pass here has something to find. Splitting them keeps
+    each function doing one thing and lets a caller run breach detection
+    more frequently than escalation notification if they want to.
+    """
+    reference = as_of or _utcnow()
+    fired: list[SLAEscalationEvent] = []
+
+    # -- WARNING pass -------------------------------------------------
+    running_stmt = (
+        select(TicketSlaTimer)
+        .where(
+            TicketSlaTimer.status == "RUNNING",
+            TicketSlaTimer.is_deleted.is_(False),
+        )
+        .order_by(TicketSlaTimer.due_at.asc())
+        .limit(limit)
+    )
+    for timer in session.execute(running_stmt).scalars().all():
+        target = session.execute(
+            select(SLATarget).where(
+                SLATarget.policy_id == timer.policy_id,
+                SLATarget.metric_type == timer.metric_type,
+                SLATarget.is_deleted.is_(False),
+            )
+        ).scalars().first()
+        if target is None:
+            continue
+        if _elapsed_percent(timer, reference) < target.warning_threshold_pct:
+            continue
+
+        ticket = session.get(Ticket, timer.ticket_id)
+        if ticket is None:
+            continue
+
+        for trigger in _matching_triggers(
+            session, timer.policy_id, "WARNING", timer.metric_type
+        ):
+            if _already_fired(session, trigger.id, timer.id):
+                continue
+            fired.append(
+                _fire_trigger(session, trigger, timer, ticket, at=reference, notify=notify)
+            )
+
+    # -- BREACH pass ----------------------------------------------------
+    breached_stmt = (
+        select(TicketSlaTimer)
+        .where(
+            TicketSlaTimer.status == "BREACHED",
+            TicketSlaTimer.is_deleted.is_(False),
+        )
+        .order_by(TicketSlaTimer.breached_at.asc())
+        .limit(limit)
+    )
+    for timer in session.execute(breached_stmt).scalars().all():
+        ticket = session.get(Ticket, timer.ticket_id)
+        if ticket is None:
+            continue
+
+        for trigger in _matching_triggers(
+            session, timer.policy_id, "BREACH", timer.metric_type
+        ):
+            if _already_fired(session, trigger.id, timer.id):
+                continue
+            fired.append(
+                _fire_trigger(session, trigger, timer, ticket, at=reference, notify=notify)
+            )
+
+    if fired:
+        session.flush()
+    return fired
