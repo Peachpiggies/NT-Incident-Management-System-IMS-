@@ -431,3 +431,103 @@ def evaluate_timer_breach(
 
     session.flush()
     return True
+
+
+def evaluate_breaches(
+    session: Session,
+    *,
+    as_of: datetime | None = None,
+    limit: int = 500,
+) -> list[TicketSlaTimer]:
+    """Sweep every RUNNING timer past due and flip it to BREACHED.
+
+    Meant to be called on a schedule (cron / Celery beat) rather than
+    per-request -- `evaluate_timer_breach` above only checks one timer you
+    already have loaded, and nothing else in this module walks the table.
+    Loads each timer's Ticket to satisfy `evaluate_timer_breach`'s
+    signature (and to flip `ticket.sla_breached` on RESOLUTION breaches),
+    so this is one query plus one flush per breached timer, not one flush
+    for the whole batch -- `evaluate_timer_breach` already flushes per-call,
+    and splitting the sweep into per-timer transactions means one bad
+    ticket (e.g. a stale FK) fails that timer without losing the rest of
+    the batch. Caller still owns the commit, same as everywhere else in
+    this module.
+
+    `limit` caps how many timers a single sweep processes, so a large
+    backlog (e.g. after a scheduler outage) gets drained over several runs
+    instead of one call trying to do it all and holding the session open
+    for too long. Returns only the timers that were actually breached in
+    this call, not the full past-due set that was considered.
+    """
+    reference = as_of or _utcnow()
+
+    stmt = (
+        select(TicketSlaTimer)
+        .where(
+            TicketSlaTimer.status == "RUNNING",
+            TicketSlaTimer.due_at < reference,
+            TicketSlaTimer.is_deleted.is_(False),
+        )
+        .order_by(TicketSlaTimer.due_at.asc())
+        .limit(limit)
+    )
+    due_timers = session.execute(stmt).scalars().all()
+
+    breached: list[TicketSlaTimer] = []
+    for timer in due_timers:
+        ticket = session.get(Ticket, timer.ticket_id)
+        if ticket is None:
+            # Orphaned timer (ticket hard-deleted out from under it). Skip
+            # rather than raise -- evaluate_timer_breach needs a Ticket to
+            # write history/sla_breached against, and one bad row shouldn't
+            # sink the whole sweep.
+            continue
+        if evaluate_timer_breach(session, timer, ticket, as_of=reference):
+            breached.append(timer)
+
+    return breached
+
+
+# --------------------------------------------------------------------------
+# Cancellation
+# --------------------------------------------------------------------------
+
+
+def cancel_sla_timer(
+    session: Session,
+    timer: TicketSlaTimer,
+    ticket: Ticket,
+    *,
+    at: datetime | None = None,
+    actor_id=None,
+    reason: str | None = None,
+) -> TicketSlaTimer:
+    """Cancel a timer that will never be met or breached (e.g. the ticket
+    was closed as a duplicate, merged, or deleted before this metric
+    resolved).
+
+    Valid from RUNNING or PAUSED -- MET/BREACHED/CANCELLED are already
+    terminal. Cancelling from PAUSED does not fold in pause math the way
+    resume/mark_timer_met do, since a cancelled timer's due_at is no
+    longer meaningful; total_paused_seconds is left as whatever it already
+    accrued for audit purposes.
+    """
+    if timer.status not in {"RUNNING", "PAUSED"}:
+        raise InvalidTimerTransition(
+            f"Cannot cancel a {timer.metric_type} timer in status {timer.status!r}; "
+            "must be RUNNING or PAUSED"
+        )
+    at = at or _utcnow()
+    timer.status = "CANCELLED"
+    timer.cancelled_at = at
+    timer.paused_at = None
+    _record_history(
+        session,
+        ticket,
+        action="SLA_TIMER_CANCELLED",
+        field=timer.metric_type,
+        performed_by=actor_id,
+        remark=reason,
+    )
+    session.flush()
+    return timer
