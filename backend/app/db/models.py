@@ -491,6 +491,7 @@ class TicketComment(BaseModel):
         String(20), default="NOTE", server_default="NOTE", nullable=False
     )
     ticket: Mapped[Ticket] = relationship(back_populates="comments")
+    user: Mapped[User] = relationship(foreign_keys=[user_id])
     mentions: Mapped[list[TicketCommentMention]] = relationship(
         back_populates="comment", cascade="all, delete-orphan"
     )

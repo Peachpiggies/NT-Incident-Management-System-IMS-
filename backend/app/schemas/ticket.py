@@ -106,6 +106,8 @@ class TicketAssign(BaseModel):
 
     assignee_id: UUID
 
+    reason: str | None = Field(default=None, max_length=2000)
+
 
 # ==========================================================
 # Status
@@ -115,6 +117,15 @@ class TicketAssign(BaseModel):
 class TicketStatusUpdate(BaseModel):
 
     status_id: UUID
+
+    remark: str | None = Field(default=None, max_length=2000)
+
+    # TODO: ideally derived server-side from the target TicketStatus's own
+    # metadata (e.g. a `is_closed`/`is_terminal` flag) rather than trusted
+    # from the client. Left as a client-supplied flag for now since that
+    # metadata isn't visible in the schema I have -- flag if TicketStatus
+    # already has such a field and I'll switch this to a server-side lookup.
+    is_closed_status: bool = False
 
 
 # ==========================================================
