@@ -624,3 +624,260 @@ class RefreshToken(BaseModel):
     user: Mapped[User] = relationship(
         back_populates="refresh_tokens", foreign_keys=[user_id]
     )
+
+
+# --------------------------------------------------------------------------
+# SLA engine
+#
+# Backs app/services/sla_engine.py, which was written against exactly these
+# column/attribute names (timer.policy_id, timer.metric_type,
+# timer.target_minutes, timer.total_paused_seconds, timer.status values
+# RUNNING/PAUSED/MET/BREACHED/CANCELLED, etc.) -- see that module's docstring
+# for the policy-matching / timer-lifecycle / escalation design this schema
+# supports. Matches app/schemas/references/sla_policy.py + sla_escalation.py
+# + the TicketSlaMetricType/TicketSlaTimerStatus enums in app/schemas/ticket.py.
+#
+# NOTE: app/schemas/sla_engine.py is a stale, disconnected draft with
+# different field names (e.g. SLAPolicy.duration_minutes-on-target-only, no
+# match_priority, timer states RUNNING/PAUSED/STOPPED) and does not match
+# this table shape or app/services/sla_engine.py. Don't build against it.
+# --------------------------------------------------------------------------
+
+
+class SLAPolicy(BaseModel):
+    """An SLA policy matched to tickets by department/category/subcategory/
+    service/priority (each optional -- NULL matches any). See
+    `app.services.sla_engine.match_sla_policy` for the matching algorithm.
+    """
+
+    __tablename__ = "sla_policies"
+    __table_args__ = (
+        UniqueConstraint("code", name="uq_sla_policies_code"),
+        Index("ix_sla_policies_active_match_priority", "is_active", "match_priority"),
+    )
+
+    code: Mapped[str] = mapped_column(String(50), nullable=False)
+    name: Mapped[str] = mapped_column(String(150), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+
+    department_id: Mapped[UUID | None] = mapped_column(
+        Uuid, ForeignKey("departments.id"), index=True
+    )
+    category_id: Mapped[UUID | None] = mapped_column(
+        Uuid, ForeignKey("ticket_categories.id"), index=True
+    )
+    subcategory_id: Mapped[UUID | None] = mapped_column(
+        Uuid, ForeignKey("ticket_subcategories.id"), index=True
+    )
+    service_id: Mapped[UUID | None] = mapped_column(
+        Uuid, ForeignKey("ticket_services.id"), index=True
+    )
+    priority_id: Mapped[UUID | None] = mapped_column(
+        Uuid, ForeignKey("ticket_priorities.id"), index=True
+    )
+
+    match_priority: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
+    business_hours_only: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    targets: Mapped[list["SLATarget"]] = relationship(back_populates="policy")
+    pause_rules: Mapped[list["SLAPauseRule"]] = relationship(back_populates="policy")
+
+
+class SLATarget(BaseModel):
+    """One RESPONSE or RESOLUTION target under a policy."""
+
+    __tablename__ = "sla_targets"
+    __table_args__ = (
+        UniqueConstraint(
+            "policy_id", "metric_type", name="uq_sla_targets_policy_metric"
+        ),
+        CheckConstraint(
+            "metric_type IN ('RESPONSE', 'RESOLUTION')",
+            name="ck_sla_targets_metric_type",
+        ),
+        CheckConstraint(
+            "warning_threshold_pct BETWEEN 1 AND 100",
+            name="ck_sla_targets_warning_threshold_pct",
+        ),
+    )
+
+    policy_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("sla_policies.id"), nullable=False, index=True
+    )
+    metric_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    target_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+    warning_threshold_pct: Mapped[int] = mapped_column(
+        Integer, default=80, nullable=False
+    )
+
+    policy: Mapped[SLAPolicy] = relationship(back_populates="targets")
+
+
+class SLAPauseRule(BaseModel):
+    """Statuses that automatically pause every RUNNING timer on this policy
+    while a ticket sits in them (e.g. "Awaiting Customer" pauses the clock).
+
+    Consumed by `app.services.sla_engine.apply_status_pause_rules`, called
+    after a status transition commits. A timer this table auto-pauses
+    records which status did it via `TicketSlaTimer.auto_paused_status_id`
+    -- only a timer paused *that* way is eligible for auto-resume when the
+    ticket leaves the status; a manually-paused timer
+    (`auto_paused_status_id IS NULL`) is left alone so an unrelated status
+    change can't silently resume something a human paused on purpose.
+    """
+
+    __tablename__ = "sla_pause_rules"
+    __table_args__ = (
+        UniqueConstraint(
+            "policy_id", "status_id", name="uq_sla_pause_rules_policy_status"
+        ),
+    )
+
+    policy_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("sla_policies.id"), nullable=False, index=True
+    )
+    status_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("ticket_statuses.id"), nullable=False, index=True
+    )
+    reason: Mapped[str | None] = mapped_column(String(255))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    policy: Mapped[SLAPolicy] = relationship(back_populates="pause_rules")
+    status: Mapped[TicketStatus] = relationship()
+
+
+class TicketSlaTimer(BaseModel):
+    """Live state of one RESPONSE or RESOLUTION timer for a ticket.
+
+    `status` lifecycle: RUNNING -> (PAUSED <-> RUNNING)* -> one of
+    MET / BREACHED / CANCELLED (terminal). See
+    `app.services.sla_engine` pause/resume/completion functions.
+    """
+
+    __tablename__ = "ticket_sla_timers"
+    __table_args__ = (
+        UniqueConstraint(
+            "ticket_id", "metric_type", name="uq_ticket_sla_timers_ticket_metric"
+        ),
+        Index("ix_ticket_sla_timers_status_due", "status", "due_at"),
+        CheckConstraint(
+            "metric_type IN ('RESPONSE', 'RESOLUTION')",
+            name="ck_ticket_sla_timers_metric_type",
+        ),
+        CheckConstraint(
+            "status IN ('RUNNING', 'PAUSED', 'MET', 'BREACHED', 'CANCELLED')",
+            name="ck_ticket_sla_timers_status",
+        ),
+    )
+
+    ticket_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("tickets.id"), nullable=False, index=True
+    )
+    policy_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("sla_policies.id"), nullable=False, index=True
+    )
+    metric_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    target_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20), default="RUNNING", nullable=False
+    )
+
+    paused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    total_paused_seconds: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    # Set only when SLAPauseRule auto-paused this timer; records which
+    # status is holding it paused so apply_status_pause_rules knows it's
+    # safe to auto-resume once the ticket leaves that status. NULL for a
+    # manual pause_sla_timer() call -- see SLAPauseRule docstring.
+    auto_paused_status_id: Mapped[UUID | None] = mapped_column(
+        Uuid, ForeignKey("ticket_statuses.id")
+    )
+
+    met_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    breached_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    ticket: Mapped[Ticket] = relationship()
+    policy: Mapped[SLAPolicy] = relationship()
+
+
+class SLAEscalationTrigger(BaseModel):
+    """Fires when a timer on `policy_id` crosses its WARNING threshold
+    (SLATarget.warning_threshold_pct) or its BREACH point. NULL metric_type
+    applies to both RESPONSE and RESOLUTION targets.
+    """
+
+    __tablename__ = "sla_escalation_triggers"
+    __table_args__ = (
+        Index(
+            "ix_sla_escalation_triggers_policy_trigger_on",
+            "policy_id",
+            "trigger_on",
+        ),
+        CheckConstraint(
+            "trigger_on IN ('WARNING', 'BREACH')",
+            name="ck_sla_escalation_triggers_trigger_on",
+        ),
+        CheckConstraint(
+            "metric_type IS NULL OR metric_type IN ('RESPONSE', 'RESOLUTION')",
+            name="ck_sla_escalation_triggers_metric_type",
+        ),
+    )
+
+    policy_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("sla_policies.id"), nullable=False, index=True
+    )
+    trigger_on: Mapped[str] = mapped_column(String(20), nullable=False)
+    metric_type: Mapped[str | None] = mapped_column(String(20))
+
+    escalate_to_department_id: Mapped[UUID | None] = mapped_column(
+        Uuid, ForeignKey("departments.id")
+    )
+    escalate_to_tier: Mapped[int | None] = mapped_column(Integer)
+    notify_user_ids: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    notify_role_ids: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    channels: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    policy: Mapped[SLAPolicy] = relationship()
+
+
+class SLAEscalationEvent(BaseModel):
+    """One row per trigger firing on a specific timer -- lets
+    `evaluate_escalations` check "already fired?" without re-deriving it
+    from TicketHistory text, and guarantees a trigger fires at most once
+    per timer.
+    """
+
+    __tablename__ = "sla_escalation_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "trigger_id", "timer_id", name="uq_sla_escalation_events_trigger_timer"
+        ),
+    )
+
+    trigger_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("sla_escalation_triggers.id"), nullable=False, index=True
+    )
+    timer_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("ticket_sla_timers.id"), nullable=False, index=True
+    )
+    ticket_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("tickets.id"), nullable=False, index=True
+    )
+    trigger_on: Mapped[str] = mapped_column(String(20), nullable=False)
+    fired_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+    trigger: Mapped[SLAEscalationTrigger] = relationship()
+    timer: Mapped[TicketSlaTimer] = relationship()

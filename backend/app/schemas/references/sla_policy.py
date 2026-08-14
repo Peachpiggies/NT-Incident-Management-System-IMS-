@@ -14,6 +14,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.schemas.common import StatusSummary
 from app.schemas.ticket import TicketSlaMetricType
 
 
@@ -166,3 +167,58 @@ class SLAPolicySummary(BaseModel):
     id: UUID
     code: str
     name: str
+
+
+# ==========================================================
+# Pause Rule — Base / Create / Update / Response
+# ==========================================================
+# A status that, while a ticket sits in it, automatically pauses every
+# RUNNING timer on this policy (e.g. "pause while Awaiting Customer").
+# Runtime side: app.services.sla_engine.apply_status_pause_rules, called
+# after a status transition commits. Manual pause/resume of an individual
+# timer doesn't go through this table at all -- see SLATimerPause /
+# SLATimerResume in app.schemas.ticket.
+
+
+class SLAPauseRuleBase(BaseModel):
+    """Shared pause-rule fields."""
+
+    policy_id: UUID
+    status_id: UUID
+    reason: str | None = Field(None, max_length=255)
+    is_active: bool = True
+
+
+class SLAPauseRuleCreate(SLAPauseRuleBase):
+    """Create a pause rule. (policy_id, status_id) must be unique --
+    creating a second rule for the same pair is a 409, not a silent upsert.
+    """
+
+
+class SLAPauseRuleUpdate(BaseModel):
+    """Update a pause rule. `policy_id`/`status_id` are immutable -- they
+    define which rule this is; repoint by deleting and creating a new one.
+    """
+
+    reason: str | None = Field(None, max_length=255)
+    is_active: bool | None = None
+
+
+class SLAPauseRuleResponse(BaseModel):
+    """Full pause-rule record."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    policy_id: UUID
+    status: StatusSummary
+    reason: str | None = None
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class SLAPauseRuleListResponse(BaseModel):
+    """List of pause rules (unpaginated -- a policy has at most a handful)."""
+
+    items: list[SLAPauseRuleResponse]

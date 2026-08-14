@@ -48,6 +48,7 @@ from sqlalchemy.orm import Session
 from app.db.models import (
     SLAEscalationEvent,
     SLAEscalationTrigger,
+    SLAPauseRule,
     SLAPolicy,
     SLATarget,
     Ticket,
@@ -366,6 +367,112 @@ def resume_sla_timer(
     )
     session.flush()
     return timer
+
+
+# --------------------------------------------------------------------------
+# Automatic pause/resume (status-driven)
+# --------------------------------------------------------------------------
+
+
+def apply_status_pause_rules(
+    session: Session,
+    ticket: Ticket,
+    *,
+    new_status_id,
+    at: datetime | None = None,
+    actor_id=None,
+) -> dict[str, list[TicketSlaTimer]]:
+    """Pause or resume this ticket's timers based on the SLAPauseRule table,
+    given the status the ticket just transitioned into.
+
+    Call this *after* the status change is committed (or at least staged),
+    passing the new status_id -- this module has no opinion on how the
+    transition itself is validated (see ticket_workflow.transition_status).
+
+    For every non-terminal timer on the ticket:
+      - If an active SLAPauseRule exists for (timer.policy_id, new_status_id)
+        and the timer is RUNNING, pause it and stamp
+        `auto_paused_status_id = new_status_id` so a later resume knows this
+        pause was rule-driven, not manual.
+      - If the timer is PAUSED, was paused by *this* mechanism
+        (`auto_paused_status_id is not None`), and no active rule matches
+        the new status, resume it and clear the stamp.
+      - A timer already PAUSED with `auto_paused_status_id is None` (i.e.
+        paused manually via `pause_sla_timer`) is left alone regardless of
+        the new status -- an unrelated status change should never silently
+        resume a timer a person paused on purpose. It stays paused until
+        someone calls `resume_sla_timer` directly.
+      - MET/BREACHED/CANCELLED timers are terminal and skipped.
+
+    A ticket can have multiple timers (RESPONSE, RESOLUTION) potentially
+    against different policies if it was reclassified after RESPONSE
+    started; each timer is checked against its own `policy_id`, not the
+    ticket's current policy as a whole.
+
+    Returns {"paused": [...], "resumed": [...]}.
+    """
+    at = at or _utcnow()
+    paused: list[TicketSlaTimer] = []
+    resumed: list[TicketSlaTimer] = []
+
+    timers = (
+        session.execute(
+            select(TicketSlaTimer).where(
+                TicketSlaTimer.ticket_id == ticket.id,
+                TicketSlaTimer.is_deleted.is_(False),
+                TicketSlaTimer.status.in_(["RUNNING", "PAUSED"]),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not timers:
+        return {"paused": paused, "resumed": resumed}
+
+    # One query per distinct policy among this ticket's timers rather than
+    # per timer -- usually 1, at most 2 (RESPONSE/RESOLUTION rarely diverge
+    # in policy, but nothing here assumes they can't).
+    policy_ids = {timer.policy_id for timer in timers}
+    rule_by_policy: dict = {}
+    for policy_id in policy_ids:
+        rule_by_policy[policy_id] = session.execute(
+            select(SLAPauseRule.id).where(
+                SLAPauseRule.policy_id == policy_id,
+                SLAPauseRule.status_id == new_status_id,
+                SLAPauseRule.is_active.is_(True),
+                SLAPauseRule.is_deleted.is_(False),
+            )
+        ).first()
+
+    for timer in timers:
+        rule_matches = rule_by_policy.get(timer.policy_id) is not None
+
+        if rule_matches and timer.status == "RUNNING":
+            pause_sla_timer(
+                session,
+                timer,
+                ticket,
+                at=at,
+                actor_id=actor_id,
+                reason="Auto-paused by SLA pause rule",
+            )
+            timer.auto_paused_status_id = new_status_id
+            paused.append(timer)
+        elif (
+            not rule_matches
+            and timer.status == "PAUSED"
+            and timer.auto_paused_status_id is not None
+        ):
+            resume_sla_timer(session, timer, ticket, at=at, actor_id=actor_id)
+            timer.auto_paused_status_id = None
+            resumed.append(timer)
+        # else: RUNNING with no matching rule (no-op), or PAUSED-manually
+        # (left alone), or PAUSED-by-rule but the new status still matches
+        # a rule for this policy (stays paused, nothing to do).
+
+    if paused or resumed:
+        session.flush()
+    return {"paused": paused, "resumed": resumed}
 
 
 # --------------------------------------------------------------------------

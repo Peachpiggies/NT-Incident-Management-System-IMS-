@@ -301,6 +301,7 @@ def transition_status(
     remark: str | None = None,
     has_permission: Callable[[str], bool] | None = None,
     is_closed_status: bool = False,
+    on_status_changed: Callable[[Session, Ticket, UUID], None] | None = None,
 ) -> Ticket:
     """Move a ticket to a new status, enforcing the configured transition graph.
 
@@ -308,6 +309,17 @@ def transition_status(
     `required_permission` code (when set) and must return True/False. Pass it
     from wherever your auth/permission checking already lives -- this module
     intentionally has no opinion on how permissions are resolved.
+
+    `on_status_changed`, if given, is called as `on_status_changed(session,
+    ticket, to_status_id)` after `ticket.status_id` is updated but before this
+    function's own `session.flush()`. This is the hook point for anything
+    that needs to react to the new status within the same transaction --
+    e.g. `functools.partial(sla_engine.apply_status_pause_rules,
+    new_status_id=to_status_id, actor_id=performed_by)` to pause/resume SLA
+    timers per SLAPauseRule. Same reasoning as `has_permission`/
+    `resolve_due_at` elsewhere in this codebase: this module doesn't import
+    sla_engine directly (see module docstring on self-containment), so the
+    caller wires the two together.
     """
     edge = session.execute(
         select(TicketStatusTransition).where(
@@ -344,6 +356,10 @@ def transition_status(
         ticket.closed_at = ticket.closed_at or _utcnow()
 
     _touch(ticket, actor_id=performed_by)
+
+    if on_status_changed is not None:
+        on_status_changed(session, ticket, to_status_id)
+
     session.flush()
     return ticket
 
