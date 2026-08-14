@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     max_attachment_bytes: int = 10_000_000
     max_attachments_per_ticket: int = 10
 
+    sla_scheduler_enabled: bool = True
+
     clamav_host: str = "127.0.0.1"
     clamav_port: int = 3310
     clamav_timeout: float = 10.0
