@@ -83,7 +83,7 @@ class CommentResponse(BaseModel):
     id: UUID
     ticket_id: UUID
 
-    author: CommentAuthor
+    author: CommentAuthor = Field(validation_alias="user", serialization_alias="author")
 
     content: str
     is_internal: bool

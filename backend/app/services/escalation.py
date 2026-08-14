@@ -1,0 +1,210 @@
+"""Ticket escalation domain service: Functional vs Technical.
+
+Mirrors AssignmentService/TicketWorkflowService: HTTP handlers delegate
+mutations here; this module owns the transactional writes.
+
+FUNCTIONAL escalation = re-routing to a more appropriate team (e.g.
+Helpdesk -> Billing). Tier does not need to change. Modeled directly after
+`AssignmentService.assign_department`: it changes `ticket.department_id`
+and writes history, but does NOT force a status transition -- routing to a
+different team isn't inherently an SLA-relevant event. It DOES clear the
+assignee, though (unlike assign_department), since the receiving team has
+its own queue and shouldn't inherit an assignee from a different function.
+
+TECHNICAL escalation = moving up the expertise chain, T1 -> T2 -> T3,
+because the problem exceeds the current tier's capability. Requires a
+reason from a controlled vocabulary and DOES transition the ticket to the
+existing "ESCALATED" status -- same status the old plain-escalate endpoint
+used, so queue filtering (`/tickets/queues/escalated`) keeps working
+unchanged.
+
+Both record `from_user_id` (the assignee at the moment of handoff) and
+write a `TicketEscalation` row plus a `TicketHistory` entry.
+
+NOTE: `action="ticket.escalate"` is passed to `transition_to_code` for the
+technical path rather than a new `ticket.escalate_technical` action, so the
+existing `TicketStatusTransition` row (whatever `required_permission` it's
+configured with today) keeps working without new seed data -- exactly the
+same trick `AssignmentService.claim` uses to reuse the `ticket.assign`
+transition under a distinct endpoint permission. The endpoint-level
+permission (what a caller needs to invoke the route at all) can still be
+a new, more specific `ticket.escalate_technical` -- see tickets.py.
+"""
+
+from uuid import UUID
+
+from fastapi import HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.models import Department, Ticket, TicketEscalation, TicketHistory, User
+from app.services.workflow import TicketWorkflowService
+
+MAX_TIER = 3
+
+# Controlled vocabulary for TECHNICAL escalation reasons. SLA_RISK / MDDR_RISK
+# correspond to Ticket.sla_breached and the occurred/detected/diagnosed
+# checkpoints respectively (see IncidentTrackingService). Not enforced for
+# FUNCTIONAL escalations, which route by team rather than by capability gap.
+TECHNICAL_REASON_CODES = {
+    "SKILL_REQUIRED",
+    "COMPLEXITY",
+    "ACCESS_REQUIRED",
+    "SYSTEM_DEPENDENCY",
+    "UNRESOLVED_AFTER_ATTEMPTS",
+    "SLA_RISK",
+    "MDDR_RISK",
+}
+
+
+class TicketEscalationService:
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def _active_department(self, department_id: UUID) -> Department:
+        department = await self.db.scalar(
+            select(Department).where(
+                Department.id == department_id,
+                Department.is_active.is_(True),
+                Department.is_deleted.is_(False),
+            )
+        )
+        if department is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid department"
+            )
+        return department
+
+    async def escalate_functional(
+        self,
+        ticket: Ticket,
+        to_department_id: UUID,
+        actor: User,
+        *,
+        reason_code: str | None = None,
+        comment: str | None = None,
+    ) -> TicketEscalation:
+        """Re-route to a more appropriate team. Tier is unaffected."""
+        department = await self._active_department(to_department_id)
+        from_department_id = ticket.department_id
+        from_user_id = ticket.assigned_to
+
+        escalation = TicketEscalation(
+            ticket_id=ticket.id,
+            escalation_type="FUNCTIONAL",
+            from_tier=ticket.current_tier,
+            to_tier=ticket.current_tier,
+            from_department_id=from_department_id,
+            to_department_id=department.id,
+            from_user_id=from_user_id,
+            reason_code=reason_code,
+            comment=comment,
+            escalated_by=actor.id,
+            created_by=actor.id,
+        )
+        self.db.add(escalation)
+
+        ticket.department_id = department.id
+        ticket.assigned_to = None
+        ticket.updated_by = actor.id
+        self.db.add(
+            TicketHistory(
+                ticket_id=ticket.id,
+                performed_by=actor.id,
+                action="ticket.escalate_functional",
+                field="department_id",
+                old_value=str(from_department_id) if from_department_id else None,
+                new_value=str(department.id),
+                remark=reason_code or comment,
+            )
+        )
+        return escalation
+
+    async def escalate_technical(
+        self,
+        ticket: Ticket,
+        to_tier: int,
+        actor: User,
+        *,
+        reason_code: str,
+        to_department_id: UUID | None = None,
+        comment: str | None = None,
+        allow_tier_skip: bool = False,
+    ) -> TicketEscalation:
+        """Move up the expertise chain (T1 -> T2 -> T3)."""
+        if reason_code not in TECHNICAL_REASON_CODES:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"reason_code must be one of {sorted(TECHNICAL_REASON_CODES)} "
+                    "for a technical escalation"
+                ),
+            )
+        if to_tier > MAX_TIER:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Cannot escalate past tier {MAX_TIER}",
+            )
+        if to_tier <= ticket.current_tier:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"to_tier must be higher than current tier ({ticket.current_tier})",
+            )
+        if not allow_tier_skip and to_tier != ticket.current_tier + 1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Technical escalation must move exactly one tier at a "
+                    f"time (from {ticket.current_tier} to {ticket.current_tier + 1})"
+                ),
+            )
+
+        department = (
+            await self._active_department(to_department_id)
+            if to_department_id
+            else None
+        )
+        from_department_id = ticket.department_id
+        from_user_id = ticket.assigned_to
+        from_tier = ticket.current_tier
+
+        escalation = TicketEscalation(
+            ticket_id=ticket.id,
+            escalation_type="TECHNICAL",
+            from_tier=from_tier,
+            to_tier=to_tier,
+            from_department_id=from_department_id,
+            to_department_id=department.id if department else from_department_id,
+            from_user_id=from_user_id,
+            reason_code=reason_code,
+            comment=comment,
+            escalated_by=actor.id,
+            created_by=actor.id,
+        )
+        self.db.add(escalation)
+
+        ticket.current_tier = to_tier
+        if department is not None and department.id != from_department_id:
+            ticket.department_id = department.id
+            ticket.assigned_to = None
+        ticket.updated_by = actor.id
+        self.db.add(
+            TicketHistory(
+                ticket_id=ticket.id,
+                performed_by=actor.id,
+                action="ticket.escalate_technical",
+                field="current_tier",
+                old_value=str(from_tier),
+                new_value=str(to_tier),
+                remark=f"{reason_code}: {comment}" if comment else reason_code,
+            )
+        )
+        # See module docstring for why action="ticket.escalate" here.
+        await TicketWorkflowService(self.db).transition_to_code(
+            ticket,
+            "ESCALATED",
+            actor,
+            action="ticket.escalate",
+            remark=f"Technical escalation to tier {to_tier} ({reason_code})",
+        )
+        return escalation

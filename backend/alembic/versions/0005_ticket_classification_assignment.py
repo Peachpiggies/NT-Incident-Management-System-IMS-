@@ -72,11 +72,11 @@ def upgrade() -> None:
     ticket_columns = _columns(bind, "tickets")
     if "subcategory_id" not in ticket_columns:
         op.add_column("tickets", sa.Column("subcategory_id", sa.Uuid(), nullable=True))
-        op.create_foreign_key("fk_tickets_subcategory_id_ticket_subcategories", "tickets", "ticket_subcategories", ["subcategory_id"], ["id"])
+        op.create_foreign_key(op.f("fk_tickets_subcategory_id_ticket_subcategories"), "tickets", "ticket_subcategories", ["subcategory_id"], ["id"])
         op.create_index("ix_tickets_subcategory_id", "tickets", ["subcategory_id"])
     if "service_id" not in ticket_columns:
         op.add_column("tickets", sa.Column("service_id", sa.Uuid(), nullable=True))
-        op.create_foreign_key("fk_tickets_service_id_ticket_services", "tickets", "ticket_services", ["service_id"], ["id"])
+        op.create_foreign_key(op.f("fk_tickets_service_id_ticket_services"), "tickets", "ticket_services", ["service_id"], ["id"])
         op.create_index("ix_tickets_service_id", "tickets", ["service_id"])
     if "ix_tickets_department_status_created" not in _indexes(bind, "tickets"):
         op.create_index("ix_tickets_department_status_created", "tickets", ["department_id", "status_id", "created_at"])
@@ -89,11 +89,11 @@ def downgrade() -> None:
         op.drop_index("ix_tickets_department_status_created", table_name="tickets")
     columns = _columns(bind, "tickets")
     if "service_id" in columns:
-        op.drop_constraint("fk_tickets_service_id_ticket_services", "tickets", type_="foreignkey")
+        op.drop_constraint(op.f("fk_tickets_service_id_ticket_services"), "tickets", type_="foreignkey")
         op.drop_index("ix_tickets_service_id", table_name="tickets")
         op.drop_column("tickets", "service_id")
     if "subcategory_id" in columns:
-        op.drop_constraint("fk_tickets_subcategory_id_ticket_subcategories", "tickets", type_="foreignkey")
+        op.drop_constraint(op.f("fk_tickets_subcategory_id_ticket_subcategories"), "tickets", type_="foreignkey")
         op.drop_index("ix_tickets_subcategory_id", table_name="tickets")
         op.drop_column("tickets", "subcategory_id")
     tables = set(sa.inspect(bind).get_table_names())

@@ -128,6 +128,52 @@ class AssignmentService:
         )
         return department
 
+    async def claim(
+        self,
+        ticket: Ticket,
+        actor: User,
+    ) -> User:
+        """Self-assign an unassigned ticket to the acting Tier 1 agent.
+
+        This is deliberately a separate path from `assign_user`, which a
+        supervisor/dispatcher can use to hand a ticket to *anyone* with
+        `ticket.assign`. `claim` is what the generic `/assign` endpoint was
+        missing: it enforces the Tier 1 pool boundary so agents can only
+        pick up work that is (a) still unassigned and (b) actually routed
+        to their own department/queue.
+
+        Reuses the `ticket.assign` transition permission (not a new
+        `ticket.claim` transition) so no `TicketStatusTransition` seed data
+        needs to change — only the `ticket.claim` *endpoint* permission is
+        new. The distinct history action lives in the `remark`, not the
+        transition's `action`.
+        """
+        if ticket.assigned_to is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Ticket is already assigned",
+            )
+        if ticket.department_id is None or actor.department_id != ticket.department_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Ticket does not belong to your department",
+            )
+        ticket.assigned_to = actor.id
+        ticket.updated_by = actor.id
+        await TicketWorkflowService(self.db).transition_to_code(
+            ticket, "ASSIGNED", actor, action="ticket.assign", remark="Self-claimed"
+        )
+        self.db.add(
+            TicketAssignment(
+                ticket_id=ticket.id,
+                assigned_from=None,
+                assigned_to=actor.id,
+                reason="Self-claimed",
+                created_by=actor.id,
+            )
+        )
+        return actor
+
     async def assign_user(
         self,
         ticket: Ticket,

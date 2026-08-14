@@ -33,6 +33,7 @@ from app.db.models import (
     TicketCategory,
     TicketComment,
     TicketCommentMention,
+    TicketEscalation,
     TicketHistory,
     TicketNumberSequence,
     TicketPriority,
@@ -44,7 +45,16 @@ from app.db.models import (
 
 from app.db.session import get_db
 from app.services.assignment import AssignmentService
+from app.services.escalation import TicketEscalationService
+from app.services.incident_tracking import IncidentTrackingService
 from app.services.workflow import TicketWorkflowService, commit_ticket_transaction
+
+# NOTE: TicketTechnicalEscalationRequest.reason_code and
+# TicketCheckpointRequest.checkpoint below hardcode the same value sets as
+# app.services.escalation.TECHNICAL_REASON_CODES and
+# app.services.incident_tracking.MDDR_CHECKPOINTS -- duplicated rather than
+# imported because typing.Literal needs literal values at class-definition
+# time, not a runtime set. If either vocabulary changes, update both places.
 
 router = APIRouter(tags=["Tickets"])
 
@@ -59,6 +69,78 @@ class TicketDepartmentAssignmentRequest(BaseModel):
     reason: str | None = Field(default=None, max_length=2000)
 
 
+class TicketFunctionalEscalationRequest(BaseModel):
+    """Re-route to a more appropriate team. Tier is unaffected."""
+
+    to_department_id: UUID
+    reason_code: str | None = Field(default=None, max_length=50)
+    comment: str | None = Field(default=None, max_length=4000)
+
+
+class TicketTechnicalEscalationRequest(BaseModel):
+    """Move up the expertise chain (T1 -> T2 -> T3). Requires a reason from
+    the controlled vocabulary in app.services.escalation.TECHNICAL_REASON_CODES.
+    """
+
+    to_tier: int = Field(..., ge=1, le=3)
+    reason_code: Literal[
+        "SKILL_REQUIRED",
+        "COMPLEXITY",
+        "ACCESS_REQUIRED",
+        "SYSTEM_DEPENDENCY",
+        "UNRESOLVED_AFTER_ATTEMPTS",
+        "SLA_RISK",
+        "MDDR_RISK",
+    ]
+    to_department_id: UUID | None = None
+    comment: str | None = Field(default=None, max_length=4000)
+    allow_tier_skip: bool = False
+
+
+class TicketConfirmationRequest(BaseModel):
+    """Customer accepts the resolution. See POST /tickets/{id}/confirm."""
+
+    feedback: str | None = Field(default=None, max_length=4000)
+
+
+class TicketRejectionRequest(BaseModel):
+    """Customer rejects the resolution and the ticket goes back to work.
+
+    `reason` is required -- an unexplained reject gives the receiving
+    agent nothing to act on, so unlike TicketConfirmationRequest.feedback
+    this is not optional.
+    """
+
+    reason: str = Field(min_length=1, max_length=4000)
+
+
+class TicketEscalationResponse(BaseModel):
+    id: UUID
+    ticket_id: UUID
+    escalation_type: str
+    from_tier: int
+    to_tier: int
+    from_department_id: UUID | None
+    to_department_id: UUID | None
+    from_user_id: UUID | None
+    reason_code: str | None
+    comment: str | None
+    escalated_by: UUID | None
+    escalated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TicketCheckpointRequest(BaseModel):
+    checkpoint: Literal["occurred_at", "detected_at", "diagnosed_at", "resolved_at"]
+    at: datetime | None = None
+
+
+class TicketSlaResponse(BaseModel):
+    ticket_id: UUID
+    sla_breached: bool
+
+
 class TicketCommentRequest(BaseModel):
     comment: str = Field(min_length=1, max_length=10000)
     mentioned_user_ids: list[UUID] = Field(default_factory=list, max_length=20)
@@ -70,6 +152,7 @@ class TicketCommentResponse(BaseModel):
     user_id: UUID
     comment: str
     is_internal: bool
+    update_type: str
     created_at: datetime
     updated_at: datetime
     mentioned_user_ids: list[UUID] = Field(default_factory=list)
@@ -432,6 +515,7 @@ async def _comment_response(db: AsyncSession, comment: TicketComment) -> TicketC
         user_id=comment.user_id,
         comment=comment.comment,
         is_internal=comment.is_internal,
+        update_type=comment.update_type,
         created_at=comment.created_at,
         updated_at=comment.updated_at,
         mentioned_user_ids=mentioned_user_ids,
@@ -827,6 +911,68 @@ async def add_internal_note(
     return await _comment_response(db, comment)
 
 
+@router.post(
+    "/tickets/{ticket_id}/technical-update",
+    response_model=TicketCommentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_technical_update(
+    ticket_id: UUID,
+    payload: TicketCommentRequest,
+    current_user: Annotated[
+        User, Depends(require_permission("ticket.technical_update"))
+    ],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> TicketCommentResponse:
+    """Investigation/diagnosis progress entry for the T2/T3 investigation
+    timeline. Always internal (same visibility as an internal note); the
+    distinguishing feature is `update_type="TECHNICAL_UPDATE"`, which lets
+    clients filter this from general internal chatter.
+
+    NOTE: requires a `ticket.technical_update` permission to exist in
+    whatever seeds your permission table -- I don't have visibility into
+    that seed data, so this will 403 for everyone until it's added (or you
+    point this at an existing permission code instead).
+    """
+    ticket = await _get_ticket_or_404(ticket_id, db)
+    comment = TicketComment(
+        ticket_id=ticket.id,
+        user_id=current_user.id,
+        comment=payload.comment,
+        is_internal=True,
+        update_type="TECHNICAL_UPDATE",
+        created_by=current_user.id,
+    )
+    db.add(comment)
+    await db.flush()
+    mentioned_user_ids = await _validate_mentioned_users(
+        db, payload.mentioned_user_ids
+    )
+    await _set_comment_mentions(db, comment, mentioned_user_ids, current_user.id)
+    for user_id in mentioned_user_ids:
+        if user_id != current_user.id:
+            db.add(
+                _notification(
+                    user_id,
+                    ticket,
+                    "You were mentioned in a technical update",
+                    f"You were mentioned on {ticket.ticket_no}.",
+                    "ticket_mention",
+                )
+            )
+    db.add(
+        _history(
+            ticket,
+            current_user.id,
+            "ticket.technical_update",
+            remark="Technical update added",
+        )
+    )
+    await commit_ticket_transaction(db)
+    await db.refresh(comment)
+    return await _comment_response(db, comment)
+
+
 async def _comment_for_edit(
     ticket_id: UUID, comment_id: UUID, current_user: User, db: AsyncSession
 ) -> tuple[Ticket, TicketComment]:
@@ -940,6 +1086,36 @@ async def assign_ticket(
     return ticket
 
 
+@router.post("/tickets/{ticket_id}/claim", response_model=TicketResponse)
+async def claim_ticket(
+    ticket_id: UUID,
+    current_user: Annotated[User, Depends(require_permission("ticket.claim"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Ticket:
+    """Self-assign an unassigned ticket to the current Tier 1 agent.
+
+    Unlike `POST /tickets/{id}/assign` (a supervisor/dispatcher action that
+    can hand a ticket to anyone and silently overwrite an existing
+    assignee), this enforces that the ticket is still unassigned and that
+    the agent belongs to the ticket's department/queue. See
+    `AssignmentService.claim`.
+    """
+    ticket = await _get_ticket_or_404(ticket_id, db)
+    await AssignmentService(db).claim(ticket, current_user)
+    db.add(
+        _notification(
+            current_user.id,
+            ticket,
+            "Ticket claimed",
+            f"You claimed {ticket.ticket_no}.",
+            "ticket_assignment",
+        )
+    )
+    await commit_ticket_transaction(db)
+    await _refresh_ticket_detail(db, ticket)
+    return ticket
+
+
 @router.post("/tickets/{ticket_id}/assign-department", response_model=TicketResponse)
 async def assign_ticket_department(
     ticket_id: UUID,
@@ -1012,6 +1188,132 @@ async def escalate_ticket(
     await commit_ticket_transaction(db)
     await _refresh_ticket_detail(db, ticket)
     return ticket
+
+
+# --------------------------------------------------------------------
+# Structured escalation: Functional (re-route to another team) vs
+# Technical (move up the T1 -> T2 -> T3 expertise chain). Deliberately
+# separate endpoints rather than one polymorphic /escalate body, matching
+# this router's existing convention of splitting related-but-distinct
+# actions (see /assign vs /assign-department vs /claim above). The plain
+# /escalate endpoint above is untouched -- it still just flips status to
+# ESCALATED with no tier/department bookkeeping, for callers that don't
+# need the structured history this introduces.
+#
+# Alternative (not built): a single /escalate endpoint taking a
+# discriminated body (`escalation_type: "FUNCTIONAL" | "TECHNICAL"` plus
+# type-conditional fields, validated with a pydantic model_validator) would
+# also work and cuts down on route count, at the cost of one endpoint doing
+# two structurally different things. Say the word if you'd rather have
+# that instead of the two routes below.
+# --------------------------------------------------------------------
+
+
+@router.post(
+    "/tickets/{ticket_id}/escalate/functional",
+    response_model=TicketEscalationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def escalate_ticket_functional(
+    ticket_id: UUID,
+    payload: TicketFunctionalEscalationRequest,
+    current_user: Annotated[
+        User, Depends(require_permission("ticket.escalate_functional"))
+    ],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> TicketEscalation:
+    ticket = await _get_ticket_or_404(ticket_id, db)
+    escalation = await TicketEscalationService(db).escalate_functional(
+        ticket,
+        payload.to_department_id,
+        current_user,
+        reason_code=payload.reason_code,
+        comment=payload.comment,
+    )
+    await commit_ticket_transaction(db)
+    await db.refresh(escalation)
+    return escalation
+
+
+@router.post(
+    "/tickets/{ticket_id}/escalate/technical",
+    response_model=TicketEscalationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def escalate_ticket_technical(
+    ticket_id: UUID,
+    payload: TicketTechnicalEscalationRequest,
+    current_user: Annotated[
+        User, Depends(require_permission("ticket.escalate_technical"))
+    ],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> TicketEscalation:
+    ticket = await _get_ticket_or_404(ticket_id, db)
+    escalation = await TicketEscalationService(db).escalate_technical(
+        ticket,
+        payload.to_tier,
+        current_user,
+        reason_code=payload.reason_code,
+        to_department_id=payload.to_department_id,
+        comment=payload.comment,
+        allow_tier_skip=payload.allow_tier_skip,
+    )
+    await commit_ticket_transaction(db)
+    await db.refresh(escalation)
+    return escalation
+
+
+@router.get(
+    "/tickets/{ticket_id}/escalations", response_model=list[TicketEscalationResponse]
+)
+async def list_ticket_escalations(
+    ticket_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[TicketEscalation]:
+    ticket = await _get_ticket_or_404(ticket_id, db)
+    await require_ticket_read(db, current_user, ticket)
+    return list(
+        (
+            await db.scalars(
+                select(TicketEscalation)
+                .where(
+                    TicketEscalation.ticket_id == ticket.id,
+                    TicketEscalation.is_deleted.is_(False),
+                )
+                .order_by(TicketEscalation.escalated_at.asc())
+            )
+        ).all()
+    )
+
+
+@router.post("/tickets/{ticket_id}/checkpoints", response_model=TicketResponse)
+async def record_ticket_checkpoint(
+    ticket_id: UUID,
+    payload: TicketCheckpointRequest,
+    current_user: Annotated[User, Depends(require_permission("ticket.update"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Ticket:
+    ticket = await _get_ticket_or_404(ticket_id, db)
+    await IncidentTrackingService(db).record_checkpoint(
+        ticket, payload.checkpoint, current_user, at=payload.at
+    )
+    await commit_ticket_transaction(db)
+    await _refresh_ticket_detail(db, ticket)
+    return ticket
+
+
+@router.post("/tickets/{ticket_id}/sla/evaluate", response_model=TicketSlaResponse)
+async def evaluate_ticket_sla(
+    ticket_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> TicketSlaResponse:
+    ticket = await _get_ticket_or_404(ticket_id, db)
+    await require_ticket_read(db, current_user, ticket)
+    breached = await IncidentTrackingService(db).evaluate_sla(ticket, current_user)
+    await commit_ticket_transaction(db)
+    return TicketSlaResponse(ticket_id=ticket.id, sla_breached=breached)
 
 
 @router.post("/tickets/{ticket_id}/receive_escalated", response_model=TicketResponse)
@@ -1112,6 +1414,113 @@ async def reopen_ticket(
             ticket,
             "Ticket reopened",
             f"{ticket.ticket_no} has been reopened.",
+            "ticket_update",
+        )
+    )
+    await commit_ticket_transaction(db)
+    await _refresh_ticket_detail(db, ticket)
+    return ticket
+
+
+# --------------------------------------------------------------------
+# Customer Confirmation (4.8): the final RESOLVED -> {CLOSED, REOPENED-ish}
+# branch. Only the ticket requester may confirm/reject their own ticket's
+# resolution -- a supervisor/agent confirming on the customer's behalf
+# would defeat the point of asking the customer at all -- unless they hold
+# the "*_any" override permission (e.g. an agent confirming by phone on the
+# customer's explicit say-so). Both endpoints reuse the RESOLVED-status
+# transition edges already required for /resolve and /reopen to exist, so
+# no new TicketStatusTransition seed rows are needed beyond what those two
+# endpoints already depend on.
+#
+# NOTE: the current `Ticket` schema has no dedicated reopen_reason /
+# reopened_by / reopened_at / reopen_count / previous_resolution columns
+# (see 4.6 Reopen Flow). Until those are added, /reject records the
+# customer's reason in the TicketHistory remark via `action` below --
+# it's queryable (`TicketHistory.action == "ticket.reject"`) but not yet
+# aggregable the way a real reopen_count column would be.
+# --------------------------------------------------------------------
+
+
+async def _assert_requester_or_override(
+    ticket: Ticket, current_user: User, db: AsyncSession, *, override_permission: str
+) -> None:
+    if ticket.requester_id == current_user.id:
+        return
+    if await user_has_permission(db, current_user.id, override_permission):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Only the ticket requester can confirm or reject its resolution",
+    )
+
+
+@router.post("/tickets/{ticket_id}/confirm", response_model=TicketResponse)
+async def confirm_ticket(
+    ticket_id: UUID,
+    payload: TicketConfirmationRequest,
+    current_user: Annotated[User, Depends(require_permission("ticket.confirm"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Ticket:
+    """Customer confirms the resolution actually fixed things -> CLOSED."""
+    ticket = await _get_ticket_or_404(ticket_id, db)
+    await _assert_requester_or_override(
+        ticket, current_user, db, override_permission="ticket.confirm_any"
+    )
+    ticket.closed_at = datetime.now(timezone.utc)
+    await TicketWorkflowService(db).transition_to_code(
+        ticket,
+        "CLOSED",
+        current_user,
+        action="ticket.confirm",
+        remark=payload.feedback or "Customer confirmed the resolution",
+    )
+    db.add(
+        _notification(
+            ticket.assigned_to or ticket.requester_id,
+            ticket,
+            "Resolution confirmed",
+            f"Customer confirmed the resolution on {ticket.ticket_no}.",
+            "ticket_update",
+        )
+    )
+    await commit_ticket_transaction(db)
+    await _refresh_ticket_detail(db, ticket)
+    return ticket
+
+
+@router.post("/tickets/{ticket_id}/reject", response_model=TicketResponse)
+async def reject_ticket(
+    ticket_id: UUID,
+    payload: TicketRejectionRequest,
+    current_user: Annotated[User, Depends(require_permission("ticket.reject"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Ticket:
+    """Customer rejects the resolution ("ยังใช้งานไม่ได้ครับ") -> back to work.
+
+    Routes to the same target status /reopen uses (ASSIGNED if the ticket
+    still has an assignee, otherwise NEW) so both entry points land the
+    ticket in a consistent place. Unlike /reopen, a reason is mandatory and
+    is recorded on the TicketHistory row this transition writes.
+    """
+    ticket = await _get_ticket_or_404(ticket_id, db)
+    await _assert_requester_or_override(
+        ticket, current_user, db, override_permission="ticket.reject_any"
+    )
+    ticket.resolved_at = None
+    await TicketWorkflowService(db).transition_to_code(
+        ticket,
+        "ASSIGNED" if ticket.assigned_to else "NEW",
+        current_user,
+        action="ticket.reject",
+        remark=payload.reason,
+    )
+    db.add(
+        _notification(
+            ticket.assigned_to or ticket.requester_id,
+            ticket,
+            "Resolution rejected",
+            f"Customer rejected the resolution on {ticket.ticket_no}: {payload.reason}",
             "ticket_update",
         )
     )

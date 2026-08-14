@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
@@ -135,6 +136,13 @@ class User(BaseModel):
     refresh_tokens: Mapped[list[RefreshToken]] = relationship(
         back_populates="user", foreign_keys="RefreshToken.user_id"
     )
+
+    @property
+    def full_name(self) -> str:
+        """Convenience alias for schemas (e.g. CommentAuthor) that display a
+        single display name rather than first_name/last_name separately.
+        """
+        return f"{self.first_name} {self.last_name}".strip()
 
 
 class UserRole(BaseModel):
@@ -310,6 +318,7 @@ class Ticket(BaseModel):
             "status_id",
             "created_at",
         ),
+        Index("ix_tickets_tier_status", "current_tier", "status_id"),
     )
     ticket_no: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -339,9 +348,27 @@ class Ticket(BaseModel):
         Uuid, ForeignKey("users.id"), index=True
     )
     source: Mapped[str] = mapped_column(String(30), default="WEB", nullable=False)
+    current_tier: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    sla_breached: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # MDDR checkpoints: occurred -> detected -> diagnosed -> resolved (resolved_at below)
+    occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    detected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    diagnosed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Resolution requirement: the resolver must record what was actually done
+    # to fix the issue before the ticket can transition into a resolved state.
+    # Nullable at the DB layer (older rows predate this field) but the
+    # /resolve endpoint must enforce it as required input.
+    resolution_summary: Mapped[str | None] = mapped_column(Text)
+    resolution_code: Mapped[str | None] = mapped_column(String(50))
+    # Incremented by the /reopen and /reject endpoints every time a ticket
+    # is sent back from a resolved/closed state, instead of being derived
+    # on the fly from TicketHistory.
+    reopen_count: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
     requester: Mapped[User] = relationship(foreign_keys=[requester_id])
     assignee: Mapped[User | None] = relationship(foreign_keys=[assigned_to])
 
@@ -361,6 +388,7 @@ class Ticket(BaseModel):
     histories: Mapped[list[TicketHistory]] = relationship(back_populates="ticket")
     comments: Mapped[list[TicketComment]] = relationship(back_populates="ticket")
     attachments: Mapped[list[TicketAttachment]] = relationship(back_populates="ticket")
+    escalations: Mapped[list[TicketEscalation]] = relationship(back_populates="ticket")
 
 
 class TicketNumberSequence(Base):
@@ -387,6 +415,68 @@ class TicketAssignment(BaseModel):
     ticket: Mapped[Ticket] = relationship(back_populates="assignments")
 
 
+class TicketEscalation(BaseModel):
+    """Structured escalation history.
+
+    Two distinct kinds share this table, distinguished by `escalation_type`:
+      - FUNCTIONAL: re-routing to a more appropriate team. Tier does not
+        necessarily change (e.g. Helpdesk -> Billing, both tier 1).
+      - TECHNICAL: moving up the expertise chain, T1 -> T2 -> T3. Tier must
+        increase.
+    """
+
+    __tablename__ = "ticket_escalations"
+    __table_args__ = (
+        Index("ix_ticket_escalations_ticket_escalated", "ticket_id", "escalated_at"),
+        Index("ix_ticket_escalations_ticket_type", "ticket_id", "escalation_type"),
+        CheckConstraint(
+            "escalation_type <> 'FUNCTIONAL' OR to_department_id IS NOT NULL",
+            name="ck_ticket_escalations_functional_requires_department",
+        ),
+        CheckConstraint(
+            "escalation_type <> 'TECHNICAL' OR to_tier > from_tier",
+            name="ck_ticket_escalations_technical_requires_tier_increase",
+        ),
+        CheckConstraint(
+            "escalation_type <> 'TECHNICAL' OR "
+            "(reason_code IS NOT NULL AND reason_code IN ("
+            "'SKILL_REQUIRED', 'COMPLEXITY', 'ACCESS_REQUIRED', "
+            "'SYSTEM_DEPENDENCY', 'UNRESOLVED_AFTER_ATTEMPTS', "
+            "'SLA_RISK', 'MDDR_RISK'))",
+            name="ck_ticket_escalations_technical_requires_reason",
+        ),
+    )
+    ticket_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("tickets.id"), nullable=False, index=True
+    )
+    escalation_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    from_tier: Mapped[int] = mapped_column(Integer, nullable=False)
+    to_tier: Mapped[int] = mapped_column(Integer, nullable=False)
+    from_department_id: Mapped[UUID | None] = mapped_column(
+        Uuid, ForeignKey("departments.id")
+    )
+    to_department_id: Mapped[UUID | None] = mapped_column(
+        Uuid, ForeignKey("departments.id")
+    )
+    from_user_id: Mapped[UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id"), index=True
+    )
+    reason_code: Mapped[str | None] = mapped_column(String(50))
+    comment: Mapped[str | None] = mapped_column(Text)
+    escalated_by: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("users.id"))
+    escalated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    ticket: Mapped[Ticket] = relationship(back_populates="escalations")
+    from_department: Mapped[Department | None] = relationship(
+        foreign_keys=[from_department_id]
+    )
+    to_department: Mapped[Department | None] = relationship(
+        foreign_keys=[to_department_id]
+    )
+    from_user: Mapped[User | None] = relationship(foreign_keys=[from_user_id])
+
+
 class TicketHistory(BaseModel):
     __tablename__ = "ticket_histories"
     ticket_id: Mapped[UUID] = mapped_column(
@@ -406,13 +496,22 @@ class TicketHistory(BaseModel):
 
 class TicketComment(BaseModel):
     __tablename__ = "ticket_comments"
+    __table_args__ = (
+        Index("ix_ticket_comments_ticket_update_type", "ticket_id", "update_type"),
+    )
     ticket_id: Mapped[UUID] = mapped_column(
         Uuid, ForeignKey("tickets.id"), nullable=False, index=True
     )
     user_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False)
     comment: Mapped[str] = mapped_column(Text, nullable=False)
     is_internal: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # "NOTE" (general internal note) or "TECHNICAL_UPDATE" (investigation/diagnosis
+    # progress entry surfaced on the T2/T3 investigation timeline).
+    update_type: Mapped[str] = mapped_column(
+        String(20), default="NOTE", server_default="NOTE", nullable=False
+    )
     ticket: Mapped[Ticket] = relationship(back_populates="comments")
+    user: Mapped[User] = relationship(foreign_keys=[user_id])
     mentions: Mapped[list[TicketCommentMention]] = relationship(
         back_populates="comment", cascade="all, delete-orphan"
     )

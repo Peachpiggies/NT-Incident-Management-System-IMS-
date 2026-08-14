@@ -51,7 +51,7 @@ def upgrade() -> None:
     foreign_key_name = "fk_refresh_tokens_login_history_id_login_histories"
     if foreign_key_name not in foreign_keys:
         op.create_foreign_key(
-            foreign_key_name,
+            op.f(foreign_key_name),
             "refresh_tokens",
             "login_histories",
             ["login_history_id"],
@@ -81,7 +81,7 @@ def downgrade() -> None:
     op.drop_index("ix_refresh_tokens_user_session", table_name="refresh_tokens")
     op.drop_index("ix_refresh_tokens_session_id", table_name="refresh_tokens")
     op.drop_constraint(
-        "fk_refresh_tokens_login_history_id_login_histories",
+        op.f("fk_refresh_tokens_login_history_id_login_histories"),
         "refresh_tokens",
         type_="foreignkey",
     )
