@@ -40,6 +40,23 @@ class TicketMDDRCheckpoint(str, Enum):
     RESOLVED = "resolved_at"
 
 
+class TicketSlaMetricType(str, Enum):
+    """Mirrors ticket_sla_timers.metric_type / sla_targets.metric_type."""
+
+    RESPONSE = "RESPONSE"
+    RESOLUTION = "RESOLUTION"
+
+
+class TicketSlaTimerStatus(str, Enum):
+    """Mirrors ticket_sla_timers.status."""
+
+    RUNNING = "RUNNING"
+    PAUSED = "PAUSED"
+    MET = "MET"
+    BREACHED = "BREACHED"
+    CANCELLED = "CANCELLED"
+
+
 # ==========================================================
 # Base
 # ==========================================================
@@ -327,11 +344,54 @@ class TicketEscalationSummary(BaseModel):
 # ==========================================================
 
 
+class TicketSlaTimerSummary(BaseModel):
+    """One response or resolution clock for a ticket (ticket_sla_timers row)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+
+    policy_id: UUID
+
+    metric_type: TicketSlaMetricType
+
+    target_minutes: int
+
+    started_at: datetime
+
+    due_at: datetime
+
+    paused_at: datetime | None = None
+
+    total_paused_seconds: int = 0
+
+    status: TicketSlaTimerStatus
+
+    met_at: datetime | None = None
+
+    breached_at: datetime | None = None
+
+
 class TicketSlaStatus(BaseModel):
+    """SLA snapshot for a ticket, covering both the RESPONSE and
+    RESOLUTION clocks from the SLA Engine (ticket_sla_timers).
+
+    `sla_breached` mirrors `tickets.sla_breached` (the pre-Engine flat flag,
+    still kept in sync for existing list/detail queries) — prefer
+    `resolution.status == BREACHED` (and `response.status == BREACHED`) for
+    new code, since the flat flag can't distinguish which clock breached.
+    `response` / `resolution` are `None` until the corresponding timer has
+    been created for this ticket (e.g. a ticket whose matched SLA policy
+    has no RESPONSE target has no `response` timer at all).
+    """
 
     ticket_id: UUID
 
     sla_breached: bool
+
+    response: TicketSlaTimerSummary | None = None
+
+    resolution: TicketSlaTimerSummary | None = None
 
 
 # ==========================================================
