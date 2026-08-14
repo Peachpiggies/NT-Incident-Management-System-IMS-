@@ -38,6 +38,7 @@ from app.db.models import (
     TicketNumberSequence,
     TicketPriority,
     TicketService,
+    TicketSlaTimer,
     TicketStatus,
     TicketSubcategory,
     User,
@@ -47,6 +48,7 @@ from app.db.session import get_db
 from app.services.assignment import AssignmentService
 from app.services.escalation import TicketEscalationService
 from app.services.incident_tracking import IncidentTrackingService
+from app.services.async_sla import match_and_start_sla, mark_timer_met
 from app.services.workflow import TicketWorkflowService, commit_ticket_transaction
 
 # NOTE: TicketTechnicalEscalationRequest.reason_code and
@@ -570,6 +572,10 @@ async def create_ticket(
             remark="Ticket created",
         )
     )
+    # SLA policy matching is part of the real ticket-creation transaction.
+    # A missing policy is allowed; configured policies immediately create the
+    # RESPONSE/RESOLUTION timers through the existing SLA engine.
+    await match_and_start_sla(db, ticket, actor_id=current_user.id)
     await commit_ticket_transaction(db)
     await _refresh_ticket_detail(db, ticket)
     return ticket
@@ -857,6 +863,20 @@ async def add_ticket_comment(
             ticket, current_user.id, "ticket.comment", remark="Public comment added"
         )
     )
+    # A public agent response completes the RESPONSE clock. Customer comments
+    # do not stop the response SLA because they are not a service response.
+    if current_user.id != ticket.requester_id:
+        response_timer = await db.scalar(
+            select(TicketSlaTimer).where(
+                TicketSlaTimer.ticket_id == ticket.id,
+                TicketSlaTimer.metric_type == "RESPONSE",
+                TicketSlaTimer.is_deleted.is_(False),
+            )
+        )
+        if response_timer and response_timer.status in {"RUNNING", "PAUSED"}:
+            await mark_timer_met(
+                db, response_timer, ticket, actor_id=current_user.id
+            )
     await commit_ticket_transaction(db)
     await db.refresh(comment)
     return await _comment_response(db, comment)
