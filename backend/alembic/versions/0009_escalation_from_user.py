@@ -46,27 +46,41 @@ def upgrade() -> None:
         )
 
     indexes = _indexes(bind, "ticket_escalations")
+    # NOTE: op.f(...) marks these names as already-final. Without it, Alembic
+    # re-runs the target_metadata naming_convention over the literal string
+    # we pass, double-prefixing it (see downgrade() note below for the bug
+    # this caused).
     if "ix_ticket_escalations_from_user_id" not in indexes:
         op.create_index(
-            "ix_ticket_escalations_from_user_id", "ticket_escalations", ["from_user_id"]
+            op.f("ix_ticket_escalations_from_user_id"),
+            "ticket_escalations",
+            ["from_user_id"],
         )
     if "ix_ticket_escalations_ticket_type" not in indexes:
         op.create_index(
-            "ix_ticket_escalations_ticket_type",
+            op.f("ix_ticket_escalations_ticket_type"),
             "ticket_escalations",
             ["ticket_id", "escalation_type"],
         )
 
     checks = _check_constraints(bind, "ticket_escalations")
+    # BUGFIX: these two names were previously passed as plain strings. Since
+    # they were already fully-qualified (prefixed with "ck_ticket_escalations_"),
+    # Alembic's naming_convention treated the whole string as the informal
+    # %(constraint_name)s token and re-prefixed it again, producing a
+    # truncated+hashed name that never matched what downgrade() looked for.
+    # That left the constraint behind after `downgrade base`, and the next
+    # `upgrade head` then collided trying to (re-)create it.
+    # op.f() prevents the naming_convention from being re-applied.
     if "ck_ticket_escalations_functional_requires_department" not in checks:
         op.create_check_constraint(
-            "ck_ticket_escalations_functional_requires_department",
+            op.f("ck_ticket_escalations_functional_requires_department"),
             "ticket_escalations",
             "escalation_type <> 'FUNCTIONAL' OR to_department_id IS NOT NULL",
         )
     if "ck_ticket_escalations_technical_requires_tier_increase" not in checks:
         op.create_check_constraint(
-            "ck_ticket_escalations_technical_requires_tier_increase",
+            op.f("ck_ticket_escalations_technical_requires_tier_increase"),
             "ticket_escalations",
             "escalation_type <> 'TECHNICAL' OR to_tier > from_tier",
         )
@@ -78,22 +92,26 @@ def downgrade() -> None:
     checks = _check_constraints(bind, "ticket_escalations")
     if "ck_ticket_escalations_technical_requires_tier_increase" in checks:
         op.drop_constraint(
-            "ck_ticket_escalations_technical_requires_tier_increase",
+            op.f("ck_ticket_escalations_technical_requires_tier_increase"),
             "ticket_escalations",
             type_="check",
         )
     if "ck_ticket_escalations_functional_requires_department" in checks:
         op.drop_constraint(
-            "ck_ticket_escalations_functional_requires_department",
+            op.f("ck_ticket_escalations_functional_requires_department"),
             "ticket_escalations",
             type_="check",
         )
 
     indexes = _indexes(bind, "ticket_escalations")
     if "ix_ticket_escalations_ticket_type" in indexes:
-        op.drop_index("ix_ticket_escalations_ticket_type", table_name="ticket_escalations")
+        op.drop_index(
+            op.f("ix_ticket_escalations_ticket_type"), table_name="ticket_escalations"
+        )
     if "ix_ticket_escalations_from_user_id" in indexes:
-        op.drop_index("ix_ticket_escalations_from_user_id", table_name="ticket_escalations")
+        op.drop_index(
+            op.f("ix_ticket_escalations_from_user_id"), table_name="ticket_escalations"
+        )
 
     columns = _columns(bind, "ticket_escalations")
     if "from_user_id" in columns:
