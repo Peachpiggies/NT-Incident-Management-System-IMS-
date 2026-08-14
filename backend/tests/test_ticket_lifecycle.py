@@ -1,46 +1,62 @@
 """
-Test suite for the complete ticket lifecycle scenario.
+Test suite for the complete ticket lifecycle scenario, against the actual
+NT-IMS schema in app/db/models.py.
 
 Scenario flow:
-    Customer creates incident
-        ↓
-    T1 receives ticket
-        ↓
+    Customer creates ticket (OPEN, tier 1, assigned to T1)
+        |
     T1 works on ticket
-        ↓
-    T1 cannot solve
-        ↓
-    Technical/Functional escalation
-        ↓
-    T2 receives ticket
-        ↓
+        |
+    T1 cannot solve -> TECHNICAL escalation (tier 1 -> 2, T2)
+        |
     T2 investigates
-        ↓
-    T2 escalates to Manager
-        ↓
-    Manager resolves
-        ↓
-    Resolution recorded
-        ↓
-    Customer confirms
-        ↓
-    Ticket CLOSED
+        |
+    T2 escalates to Manager (tier 2 -> 3)
+        |
+    Manager resolves -> resolution requirement enforced
+        |
+    Customer rejects -> reopen_count += 1
+        |
+    Manager resolves again
+        |
+    Customer confirms -> ticket CLOSED
+
+NOTE ON SCOPE
+-------------
+Only app/db/models.py exists in this repo so far; the /resolve, /reopen and
+/reject endpoints (and any service layer) have not been shared yet. To keep
+these tests runnable today, the four workflow actions below are implemented
+as small local helpers that operate directly on the ORM objects, standing in
+for the future service/router logic:
+
+    resolve_ticket(session, ticket, resolution_summary, resolution_code, status_id, performed_by)
+    reject_ticket(session, ticket, status_id, performed_by, remark)
+    reopen_ticket(session, ticket, status_id, performed_by, remark)
+    close_ticket(session, ticket, status_id, performed_by)
+
+Once the real /resolve, /reopen, /reject implementation is available, swap
+these calls for the real service/router calls -- the fixtures, master data,
+and assertions should still apply unchanged.
 """
 
-import pytest
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
+from uuid import uuid4
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db.models import (
-    Base, User, Incident, Ticket, TicketChange,
-    Resolution, CustomerConfirmation, Escalation, Comment
+    Base,
+    Department,
+    Ticket,
+    TicketCategory,
+    TicketEscalation,
+    TicketHistory,
+    TicketPriority,
+    TicketStatus,
+    User,
 )
-from app.services.ticket_workflow import TicketWorkflowService
-from app.services.escalation import EscalationService
-from app.services.incident_tracking import IncidentTrackingService
 
 
 # ---------------------------------------------------------------------------
@@ -49,7 +65,7 @@ from app.services.incident_tracking import IncidentTrackingService
 
 @pytest.fixture
 def db_session():
-    """Create an in-memory SQLite database for testing."""
+    """Create a fresh in-memory SQLite database for each test."""
     engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -64,883 +80,543 @@ def db_session():
 
 
 @pytest.fixture
-def mock_current_user():
-    """Mock the current user dependency."""
-    user = User(
-        id="user-customer-1",
-        username="customer1",
-        email="customer1@example.com",
-        role="customer",
-        is_active=True,
-        created_at=datetime.now(timezone.utc),
-    )
-    return MagicMock(return_value=user)
+def departments(db_session):
+    """Departments involved in the escalation path."""
+    depts = {
+        "helpdesk": Department(code="HELPDESK", name="Helpdesk (T1)"),
+        "l2_support": Department(code="L2_SUPPORT", name="Technical Support (T2)"),
+        "management": Department(code="MANAGEMENT", name="Management (T3)"),
+    }
+    for d in depts.values():
+        db_session.add(d)
+    db_session.commit()
+    for d in depts.values():
+        db_session.refresh(d)
+    return depts
 
 
 @pytest.fixture
-def mock_t1_user():
-    """Mock Tier-1 support user."""
-    user = User(
-        id="user-t1-1",
-        username="tech1",
-        email="tech1@example.com",
-        role="technician",
-        is_active=True,
-        created_at=datetime.now(timezone.utc),
-    )
-    return MagicMock(return_value=user)
-
-
-@pytest.fixture
-def mock_t2_user():
-    """Mock Tier-2 support user."""
-    user = User(
-        id="user-t2-1",
-        username="tech2",
-        email="tech2@example.com",
-        role="technician",
-        is_active=True,
-        created_at=datetime.now(timezone.utc),
-    )
-    return MagicMock(return_value=user)
-
-
-@pytest.fixture
-def mock_manager_user():
-    """Mock manager user."""
-    user = User(
-        id="user-mgr-1",
-        username="manager1",
-        email="manager1@example.com",
-        role="manager",
-        is_active=True,
-        created_at=datetime.now(timezone.utc),
-    )
-    return MagicMock(return_value=user)
-
-
-@pytest.fixture
-def workflow_service(db_session):
-    """Create a TicketWorkflowService instance with the test database session."""
-    return TicketWorkflowService(db_session)
-
-
-@pytest.fixture
-def escalation_service(db_session):
-    """Create an EscalationService instance with the test database session."""
-    return EscalationService(db_session)
-
-
-# ---------------------------------------------------------------------------
-# Helper: create test users
-# ---------------------------------------------------------------------------
-
-def _create_users(session):
-    """Create all users needed for the scenario in a single helper."""
-    users = {
+def users(db_session, departments):
+    """All users needed for the scenario."""
+    u = {
         "customer": User(
-            id="cust-1",
             username="customer1",
+            password_hash="x",
+            first_name="Cindy",
+            last_name="Customer",
             email="customer1@example.com",
-            role="customer",
-            is_active=True,
-            created_at=datetime.now(timezone.utc),
         ),
         "t1": User(
-            id="t1-1",
             username="tech1",
+            password_hash="x",
+            first_name="Tom",
+            last_name="T1",
             email="tech1@example.com",
-            role="technician",
-            is_active=True,
-            created_at=datetime.now(timezone.utc),
+            department_id=departments["helpdesk"].id,
         ),
         "t2": User(
-            id="t2-1",
             username="tech2",
+            password_hash="x",
+            first_name="Tina",
+            last_name="T2",
             email="tech2@example.com",
-            role="technician",
-            is_active=True,
-            created_at=datetime.now(timezone.utc),
+            department_id=departments["l2_support"].id,
         ),
         "manager": User(
-            id="mgr-1",
             username="manager1",
+            password_hash="x",
+            first_name="Mira",
+            last_name="Manager",
             email="manager1@example.com",
-            role="manager",
-            is_active=True,
-            created_at=datetime.now(timezone.utc),
+            department_id=departments["management"].id,
         ),
     }
-    for u in users.values():
-        session.add(u)
-    session.commit()
-    # Refresh to ensure IDs are populated
-    for u in users.values():
-        session.refresh(u)
-    return users
+    for user in u.values():
+        db_session.add(user)
+    db_session.commit()
+    for user in u.values():
+        db_session.refresh(user)
+    return u
+
+
+@pytest.fixture
+def master_data(db_session):
+    """Category, priority and status master data used across tests."""
+    category = TicketCategory(code="NETWORK", name="Network")
+    priority = TicketPriority(code="NORMAL", name="Normal", sla_minutes=240)
+    statuses = {
+        "open": TicketStatus(code="OPEN", name="Open", is_closed=False),
+        "in_progress": TicketStatus(code="IN_PROGRESS", name="In Progress", is_closed=False),
+        "escalated": TicketStatus(code="ESCALATED", name="Escalated", is_closed=False),
+        "resolved": TicketStatus(code="RESOLVED", name="Resolved", is_closed=False),
+        "closed": TicketStatus(code="CLOSED", name="Closed", is_closed=True),
+    }
+    db_session.add(category)
+    db_session.add(priority)
+    for s in statuses.values():
+        db_session.add(s)
+    db_session.commit()
+    db_session.refresh(category)
+    db_session.refresh(priority)
+    for s in statuses.values():
+        db_session.refresh(s)
+    return {"category": category, "priority": priority, "statuses": statuses}
+
+
+@pytest.fixture
+def open_ticket(db_session, users, master_data):
+    """A freshly created ticket, OPEN, tier 1, assigned to T1."""
+    ticket = Ticket(
+        ticket_no=f"INC-{uuid4().hex[:8].upper()}",
+        title="Cannot access email system",
+        description="Email system is not responding after password reset.",
+        requester_id=users["customer"].id,
+        category_id=master_data["category"].id,
+        priority_id=master_data["priority"].id,
+        status_id=master_data["statuses"]["open"].id,
+        assigned_to=users["t1"].id,
+        current_tier=1,
+    )
+    db_session.add(ticket)
+    db_session.commit()
+    db_session.refresh(ticket)
+    return ticket
 
 
 # ---------------------------------------------------------------------------
-# Test 1: Full Lifecycle — happy path
+# Local stand-ins for the future /resolve, /reopen, /reject, /close logic
+# ---------------------------------------------------------------------------
+
+def resolve_ticket(session, ticket, *, resolution_summary, status_id,
+                    resolution_code=None, performed_by=None):
+    """Stand-in for the /resolve endpoint: enforces the resolution
+    requirement (a non-empty resolution_summary) before a ticket can move
+    into a resolved state.
+    """
+    if not resolution_summary or not resolution_summary.strip():
+        raise ValueError("resolution_summary is required to resolve a ticket")
+
+    old_status_id = ticket.status_id
+    ticket.resolution_summary = resolution_summary
+    ticket.resolution_code = resolution_code
+    ticket.resolved_at = datetime.now(timezone.utc)
+    ticket.status_id = status_id
+    session.add(
+        TicketHistory(
+            ticket_id=ticket.id,
+            action="RESOLVE",
+            field="status_id",
+            old_value=str(old_status_id),
+            new_value=str(status_id),
+            performed_by=performed_by,
+            remark=resolution_summary,
+        )
+    )
+    session.commit()
+    session.refresh(ticket)
+    return ticket
+
+
+def reopen_ticket(session, ticket, *, status_id, performed_by=None, remark=None):
+    """Stand-in for the /reopen endpoint: increments reopen_count and clears
+    the previous resolution so the ticket can be worked again.
+    """
+    old_status_id = ticket.status_id
+    ticket.reopen_count += 1
+    ticket.resolved_at = None
+    ticket.resolution_summary = None
+    ticket.resolution_code = None
+    ticket.status_id = status_id
+    session.add(
+        TicketHistory(
+            ticket_id=ticket.id,
+            action="REOPEN",
+            field="status_id",
+            old_value=str(old_status_id),
+            new_value=str(status_id),
+            performed_by=performed_by,
+            remark=remark,
+        )
+    )
+    session.commit()
+    session.refresh(ticket)
+    return ticket
+
+
+def reject_ticket(session, ticket, *, status_id, performed_by=None, remark=None):
+    """Stand-in for the /reject endpoint (e.g. customer rejects the
+    resolution): also counts as a reopen for reopen_count purposes.
+    """
+    old_status_id = ticket.status_id
+    ticket.reopen_count += 1
+    ticket.resolved_at = None
+    ticket.resolution_summary = None
+    ticket.resolution_code = None
+    ticket.status_id = status_id
+    session.add(
+        TicketHistory(
+            ticket_id=ticket.id,
+            action="REJECT",
+            field="status_id",
+            old_value=str(old_status_id),
+            new_value=str(status_id),
+            performed_by=performed_by,
+            remark=remark,
+        )
+    )
+    session.commit()
+    session.refresh(ticket)
+    return ticket
+
+
+def close_ticket(session, ticket, *, status_id, performed_by=None):
+    old_status_id = ticket.status_id
+    ticket.status_id = status_id
+    ticket.closed_at = datetime.now(timezone.utc)
+    session.add(
+        TicketHistory(
+            ticket_id=ticket.id,
+            action="CLOSE",
+            field="status_id",
+            old_value=str(old_status_id),
+            new_value=str(status_id),
+            performed_by=performed_by,
+        )
+    )
+    session.commit()
+    session.refresh(ticket)
+    return ticket
+
+
+# ---------------------------------------------------------------------------
+# Test 1: Full lifecycle - happy path with one reject cycle
 # ---------------------------------------------------------------------------
 
 class TestTicketLifecycleFull:
     """End-to-end test for the complete ticket lifecycle."""
 
-    def test_full_lifecycle_scenario(
-        self,
-        db_session,
-        workflow_service,
-        escalation_service,
-    ):
-        """
-        Scenario:
-            1. Customer creates incident
-            2. T1 receives ticket
-            3. T1 works on ticket
-            4. T1 cannot solve → escalate
-            5. T2 receives ticket
-            6. T2 investigates
-            7. T2 escalates to Manager
-            8. Manager resolves
-            9. Resolution recorded
-            10. Customer confirms
-            11. Ticket CLOSED
-        """
-        # Step 0 — create all users
-        users = _create_users(db_session)
+    def test_full_lifecycle_scenario(self, db_session, users, master_data, open_ticket):
+        statuses = master_data["statuses"]
+        ticket = open_ticket
+        assert ticket.status_id == statuses["open"].id
+        assert ticket.current_tier == 1
+        assert ticket.reopen_count == 0
 
-        # ------------------------------------------------------------------
-        # Step 1: Customer creates incident
-        # ------------------------------------------------------------------
-        incident = workflow_service.create_incident(
-            title="Cannot access email system",
-            description="Email system is not responding after password reset.",
-            incident_type="technical",
-            severity="medium",
-            reporter_id=users["customer"].id,
-        )
-        assert incident is not None
-        assert incident.title == "Cannot access email system"
-        assert incident.status == "open"
-        incident_id = incident.id
+        # ------------------------------------------------------------
+        # T1 works on the ticket, cannot solve -> TECHNICAL escalation
+        # ------------------------------------------------------------
+        ticket.status_id = statuses["in_progress"].id
+        db_session.commit()
 
-        # ------------------------------------------------------------------
-        # Step 2: T1 receives ticket (auto-assigned)
-        # ------------------------------------------------------------------
-        ticket = workflow_service.create_ticket(
-            incident_id=incident_id,
-            assigned_to_id=users["t1"].id,
-            priority="normal",
-            requester_id=users["customer"].id,
-        )
-        assert ticket is not None
-        assert ticket.status == "open"
-        assert ticket.assigned_to_id == users["t1"].id
-        ticket_id = ticket.id
-
-        # ------------------------------------------------------------------
-        # Step 3: T1 works on ticket — transition to investigating
-        # ------------------------------------------------------------------
-        updated_ticket = workflow_service.transition_ticket(
-            ticket_id=ticket_id,
-            new_status="investigating",
-            performed_by=users["t1"].id,
-            notes="T1开始调查",
-        )
-        assert updated_ticket.status == "investigating"
-
-        # Verify the ticket change was recorded
-        changes = workflow_service.get_ticket_history(ticket_id=ticket_id)
-        assert len(changes) >= 1
-        assert any(c.new_status == "investigating" for c in changes)
-
-        # ------------------------------------------------------------------
-        # Step 4: T1 cannot solve → escalate (peer/technical escalation)
-        # ------------------------------------------------------------------
-        escalation = escalation_service.create_escalation(
-            ticket_id=ticket_id,
+        escalation_1 = TicketEscalation(
+            ticket_id=ticket.id,
+            escalation_type="TECHNICAL",
+            from_tier=1,
+            to_tier=2,
+            from_user_id=users["t1"].id,
+            reason_code="COMPLEXITY",
+            comment="Needs deeper investigation than T1 scope allows.",
             escalated_by=users["t1"].id,
-            reason="T1无法解决，需要升级处理",
-            escalation_level="technical",
         )
-        assert escalation is not None
-        assert escalation.status == "pending"
-        escalation_id = escalation.id
+        db_session.add(escalation_1)
+        ticket.current_tier = 2
+        ticket.assigned_to = users["t2"].id
+        ticket.status_id = statuses["escalated"].id
+        db_session.commit()
+        db_session.refresh(ticket)
 
-        # Transition ticket to escalated status
-        escalated_ticket = workflow_service.transition_ticket(
-            ticket_id=ticket_id,
-            new_status="escalated",
-            performed_by=users["t1"].id,
-            notes="Escalated to T2 for further investigation",
-        )
-        assert escalated_ticket.status == "escalated"
+        assert ticket.current_tier == 2
+        assert ticket.assigned_to == users["t2"].id
 
-        # ------------------------------------------------------------------
-        # Step 5: T2 receives ticket
-        # ------------------------------------------------------------------
-        # Reassign ticket to T2
-        reassigned_ticket = workflow_service.assign_ticket(
-            ticket_id=ticket_id,
-            assigned_to_id=users["t2"].id,
-            performed_by=users["t1"].id,
-            reason="Escalated to T2",
-        )
-        assert reassigned_ticket.assigned_to_id == users["t2"].id
+        # ------------------------------------------------------------
+        # T2 investigates, escalates to Manager
+        # ------------------------------------------------------------
+        ticket.status_id = statuses["in_progress"].id
+        db_session.commit()
 
-        # ------------------------------------------------------------------
-        # Step 6: T2 investigates
-        # ------------------------------------------------------------------
-        investigating_ticket = workflow_service.transition_ticket(
-            ticket_id=ticket_id,
-            new_status="investigating",
-            performed_by=users["t2"].id,
-            notes="T2开始深入调查",
-        )
-        assert investigating_ticket.status == "investigating"
-
-        # ------------------------------------------------------------------
-        # Step 7: T2 escalates to Manager
-        # ------------------------------------------------------------------
-        mgr_escalation = escalation_service.create_escalation(
-            ticket_id=ticket_id,
+        escalation_2 = TicketEscalation(
+            ticket_id=ticket.id,
+            escalation_type="TECHNICAL",
+            from_tier=2,
+            to_tier=3,
+            from_user_id=users["t2"].id,
+            reason_code="ACCESS_REQUIRED",
+            comment="Requires manager-level system access to fix.",
             escalated_by=users["t2"].id,
-            reason="T2需要Manager批准解决方案",
-            escalation_level="manager",
         )
-        assert mgr_escalation is not None
+        db_session.add(escalation_2)
+        ticket.current_tier = 3
+        ticket.assigned_to = users["manager"].id
+        ticket.status_id = statuses["escalated"].id
+        db_session.commit()
+        db_session.refresh(ticket)
 
-        # Transition to awaiting_response (manager approval)
-        awaiting_ticket = workflow_service.transition_ticket(
-            ticket_id=ticket_id,
-            new_status="awaiting_response",
-            performed_by=users["t2"].id,
-            notes="Escalated to Manager for resolution approval",
-        )
-        assert awaiting_ticket.status == "awaiting_response"
+        assert ticket.current_tier == 3
+        assert ticket.assigned_to == users["manager"].id
 
-        # ------------------------------------------------------------------
-        # Step 8: Manager resolves
-        # ------------------------------------------------------------------
-        resolved_ticket = workflow_service.transition_ticket(
-            ticket_id=ticket_id,
-            new_status="resolved",
-            performed_by=users["manager"].id,
-            notes="Manager resolved the issue — password reset completed manually",
-        )
-        assert resolved_ticket.status == "resolved"
-
-        # ------------------------------------------------------------------
-        # Step 9: Record resolution
-        # ------------------------------------------------------------------
-        resolution = workflow_service.record_resolution(
-            ticket_id=ticket_id,
-            resolved_by=users["manager"].id,
-            resolution_type="fix",
-            resolution_notes="Manually reset password in AD and verified access.",
+        # ------------------------------------------------------------
+        # Manager resolves (resolution requirement satisfied)
+        # ------------------------------------------------------------
+        resolve_ticket(
+            db_session,
+            ticket,
+            resolution_summary="Manually reset password in AD and verified access.",
             resolution_code="AD_PASSWORD_RESET",
-        )
-        assert resolution is not None
-        assert resolution.resolution_type == "fix"
-        assert resolution.resolved_by == users["manager"].id
-        resolution_id = resolution.id
-
-        # ------------------------------------------------------------------
-        # Step 10: Customer confirms resolution
-        # ------------------------------------------------------------------
-        confirmation = workflow_service.record_customer_confirmation(
-            ticket_id=ticket_id,
-            confirmed_by=users["customer"].id,
-            is_confirmed=True,
-            feedback="The issue is resolved. Thank you!",
-        )
-        assert confirmation is not None
-        assert confirmation.is_confirmed is True
-
-        # ------------------------------------------------------------------
-        # Step 11: Close the ticket
-        # ------------------------------------------------------------------
-        closed_ticket = workflow_service.transition_ticket(
-            ticket_id=ticket_id,
-            new_status="closed",
+            status_id=statuses["resolved"].id,
             performed_by=users["manager"].id,
-            notes="Customer confirmed resolution — closing ticket.",
         )
-        assert closed_ticket.status == "closed"
+        assert ticket.status_id == statuses["resolved"].id
+        assert ticket.resolution_summary is not None
+        assert ticket.resolved_at is not None
+        assert ticket.reopen_count == 0
 
-        # ------------------------------------------------------------------
-        # Final verification
-        # ------------------------------------------------------------------
-        # Verify the incident was updated with the resolved ticket count
-        db_session.refresh(incident)
-        assert incident.status == "resolved"
-
-        # Verify ticket history contains all transitions
-        history = workflow_service.get_ticket_history(ticket_id=ticket_id)
-        statuses_in_history = [h.new_status for h in history if h.new_status]
-        assert "open" in statuses_in_history
-        assert "investigating" in statuses_in_history
-        assert "escalated" in statuses_in_history
-        assert "resolved" in statuses_in_history
-        assert "closed" in statuses_in_history
-
-        # Verify escalation history
-        escalations = escalation_service.get_escalations_for_ticket(ticket_id=ticket_id)
-        assert len(escalations) >= 2  # technical + manager escalations
-
-        # Verify the audit log
-        audit_log = workflow_service.get_ticket_history(ticket_id=ticket_id)
-        assert len(audit_log) >= 5  # multiple status transitions
-
-
-# ---------------------------------------------------------------------------
-# Test 2: Individual step tests
-# ---------------------------------------------------------------------------
-
-class TestIndividualSteps:
-    """Test each step of the lifecycle individually."""
-
-    def test_customer_creates_incident(self, db_session, workflow_service):
-        """Step 1: Customer creates an incident."""
-        users = _create_users(db_session)
-
-        incident = workflow_service.create_incident(
-            title="Network connectivity issue",
-            description="Unable to connect to VPN.",
-            incident_type="technical",
-            severity="high",
-            reporter_id=users["customer"].id,
+        # ------------------------------------------------------------
+        # Customer rejects the resolution -> reopen_count increments
+        # ------------------------------------------------------------
+        reject_ticket(
+            db_session,
+            ticket,
+            status_id=statuses["in_progress"].id,
+            performed_by=users["customer"].id,
+            remark="Still cannot log in from the mobile app.",
         )
+        assert ticket.reopen_count == 1
+        assert ticket.resolved_at is None
+        assert ticket.resolution_summary is None
 
-        assert incident.id is not None
-        assert incident.title == "Network connectivity issue"
-        assert incident.status == "open"
-        assert incident.severity == "high"
-        assert incident.reporter_id == users["customer"].id
-
-    def test_t1_receives_ticket(self, db_session, workflow_service):
-        """Step 2: T1 is assigned a ticket for an incident."""
-        users = _create_users(db_session)
-        incident = workflow_service.create_incident(
-            title="Software license expired",
-            description="Adobe Creative Suite license has expired.",
-            incident_type="service_request",
-            severity="low",
-            reporter_id=users["customer"].id,
-        )
-
-        ticket = workflow_service.create_ticket(
-            incident_id=incident.id,
-            assigned_to_id=users["t1"].id,
-            priority="low",
-            requester_id=users["customer"].id,
-        )
-
-        assert ticket.status == "open"
-        assert ticket.assigned_to_id == users["t1"].id
-        assert ticket.incident_id == incident.id
-
-    def test_t1_works_on_ticket(self, db_session, workflow_service):
-        """Step 3: T1 starts working on the ticket."""
-        users = _create_users(db_session)
-        incident = workflow_service.create_incident(
-            title="Printer not responding",
-            description="Network printer is offline.",
-            incident_type="technical",
-            severity="medium",
-            reporter_id=users["customer"].id,
-        )
-        ticket = workflow_service.create_ticket(
-            incident_id=incident.id,
-            assigned_to_id=users["t1"].id,
-            priority="normal",
-            requester_id=users["customer"].id,
-        )
-
-        work_ticket = workflow_service.transition_ticket(
-            ticket_id=ticket.id,
-            new_status="investigating",
-            performed_by=users["t1"].id,
-            notes="Checking printer queue and network connection.",
-        )
-
-        assert work_ticket.status == "investigating"
-
-    def test_t1_escalates(self, db_session, escalation_service, workflow_service):
-        """Step 4-5: T1 escalates because they cannot solve."""
-        users = _create_users(db_session)
-        incident = workflow_service.create_incident(
-            title="Database corruption detected",
-            description="Primary database showing index corruption.",
-            incident_type="technical",
-            severity="critical",
-            reporter_id=users["customer"].id,
-        )
-        ticket = workflow_service.create_ticket(
-            incident_id=incident.id,
-            assigned_to_id=users["t1"].id,
-            priority="high",
-            requester_id=users["customer"].id,
-        )
-
-        # Create escalation
-        escalation = escalation_service.create_escalation(
-            ticket_id=ticket.id,
-            escalated_by=users["t1"].id,
-            reason="Requires DBA expertise beyond T1 scope.",
-            escalation_level="technical",
-        )
-
-        assert escalation.ticket_id == ticket.id
-        assert escalation.escalated_by == users["t1"].id
-        assert escalation.escalation_level == "technical"
-        assert escalation.status == "pending"
-
-        # Transition to escalated
-        escalated = workflow_service.transition_ticket(
-            ticket_id=ticket.id,
-            new_status="escalated",
-            performed_by=users["t1"].id,
-            notes="Escalating to specialist team.",
-        )
-        assert escalated.status == "escalated"
-
-    def test_t2_investigates(self, db_session, workflow_service):
-        """Step 6: T2 receives and investigates the escalated ticket."""
-        users = _create_users(db_session)
-        incident = workflow_service.create_incident(
-            title="API gateway timeout",
-            description="External API calls timing out after 30s.",
-            incident_type="technical",
-            severity="high",
-            reporter_id=users["customer"].id,
-        )
-        ticket = workflow_service.create_ticket(
-            incident_id=incident.id,
-            assigned_to_id=users["t2"].id,
-            priority="high",
-            requester_id=users["customer"].id,
-        )
-
-        investigating = workflow_service.transition_ticket(
-            ticket_id=ticket.id,
-            new_status="investigating",
-            performed_by=users["t2"].id,
-            notes="Analyzing API gateway logs and performance metrics.",
-        )
-
-        assert investigating.status == "investigating"
-        assert investigating.assigned_to_id == users["t2"].id
-
-    def test_t2_escalates_to_manager(self, db_session, escalation_service):
-        """Step 7: T2 escalates to Manager for approval."""
-        users = _create_users(db_session)
-        incident = MagicMock()
-        incident.id = "inc-mgr-test"
-        db_session.add(incident)
-
-        ticket = Ticket(
-            id="tkt-mgr-test",
-            incident_id=incident.id,
-            assigned_to_id=users["t2"].id,
-            status="investigating",
-            priority="high",
-            created_by=users["t2"].id,
-        )
-        db_session.add(ticket)
-        db_session.commit()
-
-        mgr_escalation = escalation_service.create_escalation(
-            ticket_id=ticket.id,
-            escalated_by=users["t2"].id,
-            reason="需要Manager批准预算采购新license",
-            escalation_level="manager",
-        )
-
-        assert mgr_escalation.escalation_level == "manager"
-        assert mgr_escalation.status == "pending"
-
-    def test_manager_resolves(self, db_session, workflow_service):
-        """Step 8: Manager resolves the ticket."""
-        users = _create_users(db_session)
-        incident = workflow_service.create_incident(
-            title="Server capacity expansion needed",
-            description="CPU utilization consistently above 90%.",
-            incident_type="technical",
-            severity="high",
-            reporter_id=users["customer"].id,
-        )
-        ticket = workflow_service.create_ticket(
-            incident_id=incident.id,
-            assigned_to_id=users["manager"].id,
-            priority="high",
-            requester_id=users["customer"].id,
-        )
-
-        resolved = workflow_service.transition_ticket(
-            ticket_id=ticket.id,
-            new_status="resolved",
+        # ------------------------------------------------------------
+        # Manager resolves again
+        # ------------------------------------------------------------
+        resolve_ticket(
+            db_session,
+            ticket,
+            resolution_summary="Also cleared cached credentials on the mobile client.",
+            resolution_code="MOBILE_CACHE_CLEAR",
+            status_id=statuses["resolved"].id,
             performed_by=users["manager"].id,
-            notes="Server expanded from 4 to 16 vCPUs and verified performance.",
         )
+        assert ticket.status_id == statuses["resolved"].id
+        assert ticket.reopen_count == 1  # unchanged by a resolve
 
-        assert resolved.status == "resolved"
-        assert resolved.resolved_by == users["manager"].id
-
-    def test_resolution_recorded(self, db_session, workflow_service):
-        """Step 9: Resolution details are recorded."""
-        users = _create_users(db_session)
-        incident = workflow_service.create_incident(
-            title="SSL certificate expired",
-            description="Website showing security warning to users.",
-            incident_type="technical",
-            severity="critical",
-            reporter_id=users["customer"].id,
+        # ------------------------------------------------------------
+        # Customer confirms -> ticket CLOSED
+        # ------------------------------------------------------------
+        close_ticket(
+            db_session,
+            ticket,
+            status_id=statuses["closed"].id,
+            performed_by=users["customer"].id,
         )
-        ticket = workflow_service.create_ticket(
-            incident_id=incident.id,
-            assigned_to_id=users["manager"].id,
-            priority="high",
-            requester_id=users["customer"].id,
+        assert ticket.status_id == statuses["closed"].id
+        assert ticket.closed_at is not None
+
+        # ------------------------------------------------------------
+        # Final verification: history + escalations recorded
+        # ------------------------------------------------------------
+        history = (
+            db_session.query(TicketHistory)
+            .filter(TicketHistory.ticket_id == ticket.id)
+            .order_by(TicketHistory.performed_at)
+            .all()
         )
+        actions = [h.action for h in history]
+        assert actions == ["RESOLVE", "REJECT", "RESOLVE", "CLOSE"]
 
-        # Resolve first
-        workflow_service.transition_ticket(
-            ticket_id=ticket.id,
-            new_status="resolved",
-            performed_by=users["manager"].id,
-            notes="Certificate renewed and installed.",
+        escalations = (
+            db_session.query(TicketEscalation)
+            .filter(TicketEscalation.ticket_id == ticket.id)
+            .all()
         )
-
-        # Record resolution details
-        resolution = workflow_service.record_resolution(
-            ticket_id=ticket.id,
-            resolved_by=users["manager"].id,
-            resolution_type="fix",
-            resolution_notes="Renewed SSL certificate via Let's Encrypt and reloaded nginx.",
-            resolution_code="SSL_RENEWAL",
-        )
-
-        assert resolution is not None
-        assert resolution.resolution_type == "fix"
-        assert resolution.resolution_code == "SSL_RENEWAL"
-        assert resolution.ticket_id == ticket.id
-
-    def test_customer_confirms(self, db_session, workflow_service):
-        """Step 10: Customer confirms the resolution."""
-        users = _create_users(db_session)
-        incident = workflow_service.create_incident(
-            title="Email forwarding not working",
-            description="Emails forwarded to mobile are not arriving.",
-            incident_type="technical",
-            severity="medium",
-            reporter_id=users["customer"].id,
-        )
-        ticket = workflow_service.create_ticket(
-            incident_id=incident.id,
-            assigned_to_id=users["t1"].id,
-            priority="normal",
-            requester_id=users["customer"].id,
-        )
-
-        workflow_service.transition_ticket(
-            ticket_id=ticket.id,
-            new_status="resolved",
-            performed_by=users["t1"].id,
-            notes="Fixed email forwarding rule configuration.",
-        )
-
-        confirmation = workflow_service.record_customer_confirmation(
-            ticket_id=ticket.id,
-            confirmed_by=users["customer"].id,
-            is_confirmed=True,
-            feedback="Email forwarding is working now!",
-        )
-
-        assert confirmation.is_confirmed is True
-        assert confirmation.ticket_id == ticket.id
-        assert confirmation.confirmed_by == users["customer"].id
-        assert "working" in confirmation.feedback.lower()
-
-    def test_ticket_closed(self, db_session, workflow_service):
-        """Step 11: Ticket is closed after customer confirmation."""
-        users = _create_users(db_session)
-        incident = workflow_service.create_incident(
-            title="Desk phone not working",
-            description="VoIP phone showing no network connection.",
-            incident_type="technical",
-            severity="low",
-            reporter_id=users["customer"].id,
-        )
-        ticket = workflow_service.create_ticket(
-            incident_id=incident.id,
-            assigned_to_id=users["t1"].id,
-            priority="low",
-            requester_id=users["customer"].id,
-        )
-
-        # Resolve and confirm
-        workflow_service.transition_ticket(
-            ticket_id=ticket.id,
-            new_status="resolved",
-            performed_by=users["t1"].id,
-            notes="Replaced Ethernet cable and configured POE switch port.",
-        )
-
-        workflow_service.record_customer_confirmation(
-            ticket_id=ticket.id,
-            confirmed_by=users["customer"].id,
-            is_confirmed=True,
-            feedback="Phone is working.",
-        )
-
-        # Close the ticket
-        closed = workflow_service.transition_ticket(
-            ticket_id=ticket.id,
-            new_status="closed",
-            performed_by=users["t1"].id,
-            notes="Closed per confirmation.",
-        )
-
-        assert closed.status == "closed"
-
-
-# ---------------------------------------------------------------------------
-# Test 3: Edge cases — escalation service
-# ---------------------------------------------------------------------------
-
-class TestEscalationService:
-    """Test EscalationService methods used in the lifecycle."""
-
-    def test_create_escalation(self, db_session, escalation_service):
-        """Test creating a new escalation record."""
-        users = _create_users(db_session)
-
-        ticket = Ticket(
-            id="tkt-esc-1",
-            incident_id="inc-esc-1",
-            assigned_to_id=users["t1"].id,
-            status="open",
-            created_by=users["t1"].id,
-        )
-        db_session.add(ticket)
-        db_session.commit()
-
-        esc = escalation_service.create_escalation(
-            ticket_id=ticket.id,
-            escalated_by=users["t1"].id,
-            reason="Cannot resolve independently.",
-            escalation_level="technical",
-        )
-
-        assert esc.id is not None
-        assert esc.ticket_id == ticket.id
-        assert esc.status == "pending"
-
-    def test_get_escalations_for_ticket(self, db_session, escalation_service):
-        """Test retrieving all escalations for a ticket."""
-        users = _create_users(db_session)
-
-        ticket = Ticket(
-            id="tkt-esc-2",
-            incident_id="inc-esc-2",
-            assigned_to_id=users["t1"].id,
-            status="open",
-            created_by=users["t1"].id,
-        )
-        db_session.add(ticket)
-        db_session.commit()
-
-        escalation_service.create_escalation(
-            ticket_id=ticket.id,
-            escalated_by=users["t1"].id,
-            reason="Level 1 issue.",
-            escalation_level="technical",
-        )
-        escalation_service.create_escalation(
-            ticket_id=ticket.id,
-            escalated_by=users["t2"].id,
-            reason="Level 2 issue.",
-            escalation_level="manager",
-        )
-
-        escalations = escalation_service.get_escalations_for_ticket(ticket_id=ticket.id)
         assert len(escalations) == 2
+        assert {e.to_tier for e in escalations} == {2, 3}
 
-    def test_update_escalation_status(self, db_session, escalation_service):
-        """Test updating escalation status to resolved."""
-        users = _create_users(db_session)
 
-        ticket = Ticket(
-            id="tkt-esc-3",
-            incident_id="inc-esc-3",
-            assigned_to_id=users["t1"].id,
-            status="open",
-            created_by=users["t1"].id,
+# ---------------------------------------------------------------------------
+# Test 2: Resolution requirement
+# ---------------------------------------------------------------------------
+
+class TestResolutionRequirement:
+    """/resolve must be given a non-empty resolution_summary."""
+
+    def test_resolve_requires_resolution_summary(self, db_session, users, master_data, open_ticket):
+        with pytest.raises(ValueError):
+            resolve_ticket(
+                db_session,
+                open_ticket,
+                resolution_summary="",
+                status_id=master_data["statuses"]["resolved"].id,
+                performed_by=users["t1"].id,
+            )
+
+    def test_resolve_rejects_whitespace_only_summary(self, db_session, users, master_data, open_ticket):
+        with pytest.raises(ValueError):
+            resolve_ticket(
+                db_session,
+                open_ticket,
+                resolution_summary="   ",
+                status_id=master_data["statuses"]["resolved"].id,
+                performed_by=users["t1"].id,
+            )
+
+    def test_resolve_succeeds_with_summary(self, db_session, users, master_data, open_ticket):
+        resolved = resolve_ticket(
+            db_session,
+            open_ticket,
+            resolution_summary="Restarted the mail service; queue drained.",
+            resolution_code="SERVICE_RESTART",
+            status_id=master_data["statuses"]["resolved"].id,
+            performed_by=users["t1"].id,
         )
-        db_session.add(ticket)
-        db_session.commit()
+        assert resolved.resolution_summary == "Restarted the mail service; queue drained."
+        assert resolved.resolution_code == "SERVICE_RESTART"
+        assert resolved.resolved_at is not None
 
-        esc = escalation_service.create_escalation(
-            ticket_id=ticket.id,
+    def test_resolution_fields_nullable_for_unresolved_ticket(self, open_ticket):
+        """A freshly created ticket has no resolution recorded yet."""
+        assert open_ticket.resolution_summary is None
+        assert open_ticket.resolution_code is None
+        assert open_ticket.resolved_at is None
+
+
+# ---------------------------------------------------------------------------
+# Test 3: reopen_count
+# ---------------------------------------------------------------------------
+
+class TestReopenCount:
+    """reopen_count must be a real, persisted counter on the ticket."""
+
+    def test_reopen_count_defaults_to_zero(self, open_ticket):
+        assert open_ticket.reopen_count == 0
+
+    def test_reopen_increments_reopen_count(self, db_session, users, master_data, open_ticket):
+        statuses = master_data["statuses"]
+        resolve_ticket(
+            db_session, open_ticket,
+            resolution_summary="Fixed once.",
+            status_id=statuses["resolved"].id,
+            performed_by=users["t1"].id,
+        )
+        reopen_ticket(
+            db_session, open_ticket,
+            status_id=statuses["in_progress"].id,
+            performed_by=users["customer"].id,
+        )
+        assert open_ticket.reopen_count == 1
+
+    def test_reject_increments_reopen_count(self, db_session, users, master_data, open_ticket):
+        statuses = master_data["statuses"]
+        resolve_ticket(
+            db_session, open_ticket,
+            resolution_summary="Fixed once.",
+            status_id=statuses["resolved"].id,
+            performed_by=users["t1"].id,
+        )
+        reject_ticket(
+            db_session, open_ticket,
+            status_id=statuses["in_progress"].id,
+            performed_by=users["customer"].id,
+        )
+        assert open_ticket.reopen_count == 1
+
+    def test_reopen_count_accumulates_across_multiple_cycles(
+        self, db_session, users, master_data, open_ticket
+    ):
+        statuses = master_data["statuses"]
+        for i in range(3):
+            resolve_ticket(
+                db_session, open_ticket,
+                resolution_summary=f"Fix attempt {i + 1}.",
+                status_id=statuses["resolved"].id,
+                performed_by=users["t1"].id,
+            )
+            reopen_ticket(
+                db_session, open_ticket,
+                status_id=statuses["in_progress"].id,
+                performed_by=users["customer"].id,
+                remark=f"Still broken after attempt {i + 1}.",
+            )
+        assert open_ticket.reopen_count == 3
+
+    def test_reopen_count_persists_after_reload(self, db_session, users, master_data, open_ticket):
+        statuses = master_data["statuses"]
+        resolve_ticket(
+            db_session, open_ticket,
+            resolution_summary="Fixed.",
+            status_id=statuses["resolved"].id,
+            performed_by=users["t1"].id,
+        )
+        reopen_ticket(
+            db_session, open_ticket,
+            status_id=statuses["in_progress"].id,
+            performed_by=users["customer"].id,
+        )
+        ticket_id = open_ticket.id
+        db_session.expire_all()
+
+        reloaded = db_session.get(Ticket, ticket_id)
+        assert reloaded.reopen_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Test 4: Escalation edge cases (constraints on TicketEscalation)
+# ---------------------------------------------------------------------------
+
+class TestEscalationConstraints:
+    """TECHNICAL escalations must increase tier and carry a valid reason_code."""
+
+    def test_technical_escalation_requires_tier_increase(self, db_session, users, open_ticket):
+        bad_escalation = TicketEscalation(
+            ticket_id=open_ticket.id,
+            escalation_type="TECHNICAL",
+            from_tier=2,
+            to_tier=2,  # no increase -> should violate the CHECK constraint
+            reason_code="COMPLEXITY",
             escalated_by=users["t1"].id,
-            reason="Needs review.",
-            escalation_level="manager",
         )
+        db_session.add(bad_escalation)
+        with pytest.raises(Exception):
+            db_session.commit()
+        db_session.rollback()
 
-        updated = escalation_service.update_escalation_status(
-            escalation_id=esc.id,
-            new_status="resolved",
-            updated_by=users["manager"].id,
+    def test_technical_escalation_requires_known_reason_code(self, db_session, users, open_ticket):
+        bad_escalation = TicketEscalation(
+            ticket_id=open_ticket.id,
+            escalation_type="TECHNICAL",
+            from_tier=1,
+            to_tier=2,
+            reason_code="NOT_A_REAL_REASON",
+            escalated_by=users["t1"].id,
         )
+        db_session.add(bad_escalation)
+        with pytest.raises(Exception):
+            db_session.commit()
+        db_session.rollback()
 
-        assert updated.status == "resolved"
-        assert updated.updated_by == users["manager"].id
-
-
-# ---------------------------------------------------------------------------
-# Test 4: Edge cases — workflow transitions
-# ---------------------------------------------------------------------------
-
-class TestWorkflowTransitions:
-    """Test edge cases for ticket workflow transitions."""
-
-    def test_ticket_status_sequence(self, db_session, workflow_service):
-        """Verify a valid status transition sequence."""
-        users = _create_users(db_session)
-        incident = workflow_service.create_incident(
-            title="Valid sequence test",
-            description="Testing valid status transitions.",
-            incident_type="technical",
-            severity="low",
-            reporter_id=users["customer"].id,
+    def test_functional_escalation_requires_department(self, db_session, users, open_ticket):
+        bad_escalation = TicketEscalation(
+            ticket_id=open_ticket.id,
+            escalation_type="FUNCTIONAL",
+            from_tier=1,
+            to_tier=1,
+            to_department_id=None,  # required for FUNCTIONAL -> should violate CHECK
+            escalated_by=users["t1"].id,
         )
-        ticket = workflow_service.create_ticket(
-            incident_id=incident.id,
-            assigned_to_id=users["t1"].id,
-            priority="low",
-            requester_id=users["customer"].id,
-        )
+        db_session.add(bad_escalation)
+        with pytest.raises(Exception):
+            db_session.commit()
+        db_session.rollback()
 
-        # open → investigating → escalated → resolved → closed
-        t1 = workflow_service.transition_ticket(
-            ticket_id=ticket.id,
-            new_status="investigating",
-            performed_by=users["t1"].id,
+    def test_functional_escalation_valid(self, db_session, users, departments, open_ticket):
+        escalation = TicketEscalation(
+            ticket_id=open_ticket.id,
+            escalation_type="FUNCTIONAL",
+            from_tier=1,
+            to_tier=1,
+            from_department_id=departments["helpdesk"].id,
+            to_department_id=departments["l2_support"].id,
+            escalated_by=users["t1"].id,
         )
-        assert t1.status == "investigating"
-
-        t2 = workflow_service.transition_ticket(
-            ticket_id=ticket.id,
-            new_status="escalated",
-            performed_by=users["t1"].id,
-        )
-        assert t2.status == "escalated"
-
-        t3 = workflow_service.transition_ticket(
-            ticket_id=ticket.id,
-            new_status="resolved",
-            performed_by=users["manager"].id,
-        )
-        assert t3.status == "resolved"
-
-        t4 = workflow_service.transition_ticket(
-            ticket_id=ticket.id,
-            new_status="closed",
-            performed_by=users["t1"].id,
-        )
-        assert t4.status == "closed"
-
-    def test_get_ticket_history(self, db_session, workflow_service):
-        """Verify ticket history captures all changes."""
-        users = _create_users(db_session)
-        incident = workflow_service.create_incident(
-            title="History test",
-            description="Checking that history is recorded.",
-            incident_type="service_request",
-            severity="low",
-            reporter_id=users["customer"].id,
-        )
-        ticket = workflow_service.create_ticket(
-            incident_id=incident.id,
-            assigned_to_id=users["t1"].id,
-            priority="low",
-            requester_id=users["customer"].id,
-        )
-
-        workflow_service.transition_ticket(
-            ticket_id=ticket.id,
-            new_status="investigating",
-            performed_by=users["t1"].id,
-            notes="First note.",
-        )
-        workflow_service.transition_ticket(
-            ticket_id=ticket.id,
-            new_status="resolved",
-            performed_by=users["t1"].id,
-            notes="Second note.",
-        )
-
-        history = workflow_service.get_ticket_history(ticket_id=ticket.id)
-        assert len(history) >= 2
-        notes = [h.notes for h in history if h.notes]
-        assert "First note." in notes
-        assert "Second note." in notes
-
-    def test_record_resolution(self, db_session, workflow_service):
-        """Verify resolution is recorded with all details."""
-        users = _create_users(db_session)
-        incident = workflow_service.create_incident(
-            title="Resolution test",
-            description="Testing resolution recording.",
-            incident_type="technical",
-            severity="medium",
-            reporter_id=users["customer"].id,
-        )
-        ticket = workflow_service.create_ticket(
-            incident_id=incident.id,
-            assigned_to_id=users["t1"].id,
-            priority="normal",
-            requester_id=users["customer"].id,
-        )
-
-        resolution = workflow_service.record_resolution(
-            ticket_id=ticket.id,
-            resolved_by=users["t1"].id,
-            resolution_type="workaround",
-            resolution_notes="Temporary workaround applied.",
-            resolution_code="TMP_FIX",
-        )
-
-        assert resolution.ticket_id == ticket.id
-        assert resolution.resolved_by == users["t1"].id
-        assert resolution.resolution_type == "workaround"
-        assert resolution.resolution_code == "TMP_FIX"
-        assert resolution.resolved_at is not None
-
-    def test_customer_confirmation_not_confirmed(self, db_session, workflow_service):
-        """Test customer confirmation with negative feedback."""
-        users = _create_users(db_session)
-        incident = workflow_service.create_incident(
-            title="Not confirmed test",
-            description="Customer did not confirm.",
-            incident_type="technical",
-            severity="low",
-            reporter_id=users["customer"].id,
-        )
-        ticket = workflow_service.create_ticket(
-            incident_id=incident.id,
-            assigned_to_id=users["t1"].id,
-            priority="low",
-            requester_id=users["customer"].id,
-        )
-
-        confirmation = workflow_service.record_customer_confirmation(
-            ticket_id=ticket.id,
-            confirmed_by=users["customer"].id,
-            is_confirmed=False,
-            feedback="Still not working.",
-        )
-
-        assert confirmation.is_confirmed is False
+        db_session.add(escalation)
+        db_session.commit()
+        db_session.refresh(escalation)
+        assert escalation.id is not None
