@@ -107,6 +107,7 @@ class TicketWorkflowService:
                     has_permission=has_permission,
                     is_closed_status=target_status.is_closed,
                     on_status_changed=on_status_changed,
+                    action=action,
                 )
             except sync_ticket_workflow.InvalidStatusTransition as exc:
                 raise HTTPException(
