@@ -201,7 +201,11 @@ async def update_policy(
     return await _policy_or_404(db, policy.id)
 
 
-@router.delete("/sla/policies/{policy_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/sla/policies/{policy_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
 async def delete_policy(
     policy_id: UUID,
     current_user: Annotated[User, Depends(require_permission("configuration.manage"))],
@@ -316,7 +320,11 @@ async def update_pause_rule(
     )
 
 
-@router.delete("/sla/pause-rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/sla/pause-rules/{rule_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
 async def delete_pause_rule(
     rule_id: UUID,
     current_user: Annotated[User, Depends(require_permission("configuration.manage"))],
@@ -396,6 +404,7 @@ async def update_escalation_trigger(
 @router.delete(
     "/sla/escalation-triggers/{trigger_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
 )
 async def delete_escalation_trigger(
     trigger_id: UUID,
