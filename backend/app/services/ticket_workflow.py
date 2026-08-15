@@ -302,8 +302,14 @@ def transition_status(
     has_permission: Callable[[str], bool] | None = None,
     is_closed_status: bool = False,
     on_status_changed: Callable[[Session, Ticket, UUID], None] | None = None,
+    action: str = "STATUS_CHANGE",
 ) -> Ticket:
     """Move a ticket to a new status, enforcing the configured transition graph.
+
+    `action` is the `TicketHistory.action` recorded for this transition.
+    Callers that represent a specific business action (e.g. `ticket.assign`,
+    `ticket.resolve`) should pass that action code through here so the
+    history entry reflects it instead of the generic `STATUS_CHANGE` default.
 
     `has_permission`, if given, is called with the transition's
     `required_permission` code (when set) and must return True/False. Pass it
@@ -343,7 +349,7 @@ def transition_status(
     _record_history(
         session,
         ticket,
-        action="STATUS_CHANGE",
+        action=action,
         field="status_id",
         old_value=str(ticket.status_id),
         new_value=str(to_status_id),
