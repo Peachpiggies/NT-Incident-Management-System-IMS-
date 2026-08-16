@@ -21,10 +21,8 @@ No third-party dependencies - stdlib only.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import Optional
-
 
 # ---------------------------------------------------------------------------
 # States
@@ -85,21 +83,21 @@ class IncidentTicket:
     state: TicketState = TicketState.NEW
 
     # who currently owns the resolution work
-    current_tier: Optional[Tier] = None
-    current_agent: Optional[str] = None
+    current_tier: Tier | None = None
+    current_agent: str | None = None
 
     # who most recently RESOLVED it (needed so Reopen can route back to them)
-    resolved_by_tier: Optional[Tier] = None
-    resolved_by_agent: Optional[str] = None
-    last_resolution_note: Optional[str] = None
-    resolved_at: Optional[datetime] = None
+    resolved_by_tier: Tier | None = None
+    resolved_by_agent: str | None = None
+    last_resolution_note: str | None = None
+    resolved_at: datetime | None = None
 
     # reopen bookkeeping
     reopen_count: int = 0
     reopen_history: list[ReopenEvent] = field(default_factory=list)
 
     # SLA
-    sla_deadline: Optional[datetime] = None
+    sla_deadline: datetime | None = None
 
     # ------------------------------------------------------------------
     # Transitions
@@ -110,7 +108,7 @@ class IncidentTicket:
         self.current_agent = agent
         self.state = TicketState.ASSIGNED
         if self.sla_deadline is None:
-            self.sla_deadline = datetime.now() + timedelta(hours=policy.base_sla_hours)
+            self.sla_deadline = datetime.now(timezone.utc) + timedelta(hours=policy.base_sla_hours)
 
     def start_progress(self) -> None:
         if self.state not in (TicketState.ASSIGNED, TicketState.REOPENED):
@@ -124,7 +122,7 @@ class IncidentTicket:
         self.resolved_by_tier = self.current_tier
         self.resolved_by_agent = self.current_agent
         self.last_resolution_note = resolution_note
-        self.resolved_at = datetime.now()
+        self.resolved_at = datetime.now(timezone.utc)
 
     def confirm_close(self) -> None:
         """Customer accepts the resolution."""
@@ -153,7 +151,7 @@ class IncidentTicket:
             raise ValueError("Ticket has no prior resolution to reopen against")
 
         self.reopen_count += 1
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
 
         # Decide routing: same tier that resolved it, unless cap exceeded
         if self.reopen_count > policy.max_reopen_count:

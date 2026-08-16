@@ -4,8 +4,8 @@ Workflow state is configuration data (`ticket_statuses`), so this module never
 uses the retired Python enums or integer ticket/customer identifiers.
 """
 
-from datetime import datetime, timezone
 import logging
+from datetime import datetime, timezone
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
@@ -17,8 +17,6 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.schemas.ticket import TicketCreate, TicketResponse, TicketUpdate
-
 from app.api.v1.dependencies import (
     get_current_user,
     require_permission,
@@ -26,7 +24,6 @@ from app.api.v1.dependencies import (
     ticket_read_scope,
     user_has_permission,
 )
-
 from app.db.models import (
     Department,
     Notification,
@@ -44,13 +41,13 @@ from app.db.models import (
     TicketSubcategory,
     User,
 )
-
 from app.db.session import get_db
+from app.schemas.ticket import TicketCreate, TicketResponse, TicketUpdate
+from app.services import notification_engine
 from app.services.assignment import AssignmentService
+from app.services.async_sla import mark_timer_met, match_and_start_sla
 from app.services.escalation import TicketEscalationService
 from app.services.incident_tracking import IncidentTrackingService
-from app.services.async_sla import match_and_start_sla, mark_timer_met
-from app.services import notification_engine
 from app.services.workflow import TicketWorkflowService, commit_ticket_transaction
 
 # NOTE: TicketTechnicalEscalationRequest.reason_code and
@@ -471,7 +468,7 @@ async def _dispatch_event(
             message=message,
             extra_user_ids=extra_user_ids,
         )
-    except Exception:  # noqa: BLE001
+    except Exception:
         logging.getLogger(__name__).exception(
             "Notification dispatch failed event_type=%s", event_type
         )

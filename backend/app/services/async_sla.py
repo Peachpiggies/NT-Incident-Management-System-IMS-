@@ -177,7 +177,7 @@ async def run_scheduler_tick(db: AsyncSession, *, limit: int = 500) -> tuple[int
             continue
         try:
             await notification_engine.dispatch_escalation(db, trigger=trigger, ticket=ticket)
-        except Exception:  # noqa: BLE001 - one bad dispatch must not break the scheduler loop
+        except Exception:
             logging.getLogger(__name__).exception(
                 "Escalation notification dispatch failed trigger=%s ticket=%s",
                 entry["trigger_id"],

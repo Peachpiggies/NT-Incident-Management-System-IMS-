@@ -44,6 +44,7 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from app.db.models import (
@@ -57,7 +58,6 @@ from app.db.models import (
     TicketStatus,
     User,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -574,9 +574,9 @@ class TestEscalationConstraints:
             escalated_by=users["t1"].id,
         )
         db_session.add(bad_escalation)
-        with pytest.raises(Exception):
+        with pytest.raises(IntegrityError):
             db_session.commit()
-        db_session.rollback()
+        db_session.rollback()       
 
     def test_technical_escalation_requires_known_reason_code(self, db_session, users, open_ticket):
         bad_escalation = TicketEscalation(
@@ -588,7 +588,7 @@ class TestEscalationConstraints:
             escalated_by=users["t1"].id,
         )
         db_session.add(bad_escalation)
-        with pytest.raises(Exception):
+        with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
 
@@ -602,7 +602,7 @@ class TestEscalationConstraints:
             escalated_by=users["t1"].id,
         )
         db_session.add(bad_escalation)
-        with pytest.raises(Exception):
+        with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
 

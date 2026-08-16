@@ -682,8 +682,8 @@ class SLAPolicy(BaseModel):
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
-    targets: Mapped[list["SLATarget"]] = relationship(back_populates="policy")
-    pause_rules: Mapped[list["SLAPauseRule"]] = relationship(back_populates="policy")
+    targets: Mapped[list[SLATarget]] = relationship(back_populates="policy")
+    pause_rules: Mapped[list[SLAPauseRule]] = relationship(back_populates="policy")
 
 
 class SLATarget(BaseModel):

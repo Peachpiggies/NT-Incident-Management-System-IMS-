@@ -31,10 +31,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Optional
 
 from incident_reopen import IncidentTicket, TicketState
-
 
 # ---------------------------------------------------------------------------
 # Resolution Code (closed vocabulary, for analytics / reporting)
@@ -71,7 +69,7 @@ class Resolution:
     root_cause: str
     fix_description: str
     resolved_by: str
-    workaround: Optional[str] = None          # optional: temporary mitigation, if any
+    workaround: str | None = None          # optional: temporary mitigation, if any
     resolved_at: datetime = field(default_factory=datetime.now)
 
     def is_workaround_only(self) -> bool:
@@ -173,7 +171,7 @@ def prepare_and_resolve(ticket: IncidentTicket, resolution: Resolution) -> Resol
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    from incident_reopen import Tier, ReopenPolicy
+    from incident_reopen import ReopenPolicy, Tier
 
     policy = ReopenPolicy()
     ticket = IncidentTicket(ticket_id="INC-00456")

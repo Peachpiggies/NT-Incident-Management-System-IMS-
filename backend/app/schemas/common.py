@@ -125,9 +125,9 @@ class UserSummary(ORMModel):
             full_name = " ".join(part for part in (first_name, last_name) if part)
 
         return {
-            "id": getattr(data, "id"),
+            "id": data.id,
             "full_name": full_name,
-            "email": getattr(data, "email"),
+            "email": data.email,
         }
 
 

@@ -39,8 +39,8 @@ lives entirely on the TicketSlaTimer row.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
-from typing import Callable
 
 from sqlalchemy import case, or_, select
 from sqlalchemy.orm import Session

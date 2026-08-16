@@ -9,7 +9,6 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core.enums import TicketSource
-
 from app.schemas.common import (
     CategorySummary,
     DepartmentSummary,
@@ -17,7 +16,6 @@ from app.schemas.common import (
     StatusSummary,
     UserSummary,
 )
-
 
 # ==========================================================
 # Workflow enums

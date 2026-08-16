@@ -17,7 +17,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.schemas.common import StatusSummary
 from app.schemas.ticket import TicketSlaMetricType
 
-
 # ==========================================================
 # Target — Base / Create / Update / Response
 # ==========================================================

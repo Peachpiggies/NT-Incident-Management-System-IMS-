@@ -6,11 +6,11 @@ Handles ticket attachment upload, listing, retrieval and deletion.
 
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import PurePath
 from typing import Annotated
 from unicodedata import normalize
 from uuid import UUID, uuid4
-from io import BytesIO
 from zipfile import BadZipFile, ZipFile
 
 from fastapi import (
@@ -45,7 +45,6 @@ from app.core.virus_scan import (
 from app.db.models import Ticket, TicketAttachment, User
 from app.db.session import get_db
 from app.schemas.attachments import AttachmentResponse
-
 
 router = APIRouter(tags=["Attachments"])
 
@@ -187,7 +186,7 @@ async def _cleanup_storage_file(path: str) -> None:
 
     try:
         delete_file(path)
-    except Exception:
+    except Exception:  # noqa: BLE001 — cleanup best-effort, must not shadow original DB error
         # Do not replace the original database error with a cleanup error.
         # Production logging can be added here later.
         return

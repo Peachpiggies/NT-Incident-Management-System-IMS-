@@ -6,6 +6,9 @@ import asyncio
 from dataclasses import dataclass
 
 import pytest
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
 from app.core.security import hash_password
 from app.db.models import (
     Base,
@@ -26,9 +29,6 @@ from app.db.models import (
     UserRole,
 )
 from app.services import notification_engine
-from app.services.senders import SendResult
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 PASSWORD = "Secure-password-123!"
 
@@ -146,7 +146,7 @@ def test_dispatch_delivers_in_app_and_reports_unconfigured_channels(tmp_path):
 
 
 def test_dispatch_sms_reports_missing_phone_number(tmp_path):
-    engine, sessions, seed = asyncio.run(_create_harness(tmp_path))
+    engine, sessions, _seed = asyncio.run(_create_harness(tmp_path))
 
     async def scenario():
         async with sessions() as db:
@@ -241,9 +241,10 @@ def test_sms_sender_succeeds_when_twilio_configured(tmp_path, monkeypatch):
 def test_notification_rules_crud_requires_permission(tmp_path):
     engine, sessions, seed = asyncio.run(_create_harness(tmp_path))
 
+    from fastapi.testclient import TestClient
+
     from app.api.v1.dependencies import get_db
     from app.main import app
-    from fastapi.testclient import TestClient
 
     async def override_get_db():
         async with sessions() as db:
@@ -312,9 +313,10 @@ def test_notification_rules_crud_requires_permission(tmp_path):
 def test_notification_history_is_scoped_to_caller(tmp_path):
     engine, sessions, seed = asyncio.run(_create_harness(tmp_path))
 
+    from fastapi.testclient import TestClient
+
     from app.api.v1.dependencies import get_db
     from app.main import app
-    from fastapi.testclient import TestClient
 
     async def seed_history():
         async with sessions() as db:

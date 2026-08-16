@@ -16,7 +16,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.common import UserSummary
 
-
 # ==========================================================
 # Status (configurable master data, not a Python enum)
 # ==========================================================

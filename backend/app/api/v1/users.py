@@ -15,13 +15,9 @@ from app.db.session import get_db
 from app.schemas.references.department import DepartmentSummary
 from app.schemas.references.role import RoleSummary
 from app.schemas.references.user import (
-
     UserCreateRequest,
-
     UserResponse,
-
-    UserUpdateRequest
-
+    UserUpdateRequest,
 )
 
 router = APIRouter(tags=["Users"])

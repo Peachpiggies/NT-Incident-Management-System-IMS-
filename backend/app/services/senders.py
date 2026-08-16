@@ -52,7 +52,7 @@ class EmailSender:
                     client.login(settings.smtp_username, settings.smtp_password)
                 client.send_message(message)
             return SendResult(ok=True)
-        except Exception as exc:  # noqa: BLE001 - report any SMTP failure, don't crash dispatch
+        except Exception as exc:
             logger.exception("Email send failed to=%s", to_email)
             return SendResult(ok=False, error=str(exc))
 
@@ -97,7 +97,7 @@ class SmsSender:
         except urllib.error.HTTPError as exc:
             logger.exception("SMS send failed to=%s", to_phone)
             return SendResult(ok=False, error=f"Twilio HTTP {exc.code}: {exc.reason}")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.exception("SMS send failed to=%s", to_phone)
             return SendResult(ok=False, error=str(exc))
 

@@ -136,7 +136,7 @@ async def _deliver(
         else:
             error_message = f"Unknown channel: {channel}"
 
-    except Exception as exc:  # noqa: BLE001 - one bad recipient/channel must not abort dispatch
+    except Exception as exc:
         logger.exception("Notification delivery failed channel=%s user=%s", channel, recipient.id)
         error_message = str(exc)
 

@@ -12,7 +12,13 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Ticket, TicketSlaTimer, TicketStatus, TicketStatusTransition, User
+from app.db.models import (
+    Ticket,
+    TicketSlaTimer,
+    TicketStatus,
+    TicketStatusTransition,
+    User,
+)
 from app.services import ticket_workflow as sync_ticket_workflow
 
 

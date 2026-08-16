@@ -23,13 +23,6 @@ from app.db.models import (
     User,
 )
 from app.db.session import get_db
-from app.schemas.sla_escalation import (
-    SLAEscalationEventListResponse,
-    SLAEscalationTriggerCreate,
-    SLAEscalationTriggerListResponse,
-    SLAEscalationTriggerResponse,
-    SLAEscalationTriggerUpdate,
-)
 from app.schemas.references.sla_policy import (
     SLAPauseRuleCreate,
     SLAPauseRuleListResponse,
@@ -41,6 +34,13 @@ from app.schemas.references.sla_policy import (
     SLAPolicyUpdate,
     SLATargetResponse,
     SLATargetUpdate,
+)
+from app.schemas.sla_escalation import (
+    SLAEscalationEventListResponse,
+    SLAEscalationTriggerCreate,
+    SLAEscalationTriggerListResponse,
+    SLAEscalationTriggerResponse,
+    SLAEscalationTriggerUpdate,
 )
 from app.schemas.ticket import TicketSlaStatus, TicketSlaTimerSummary
 from app.services.async_sla import (

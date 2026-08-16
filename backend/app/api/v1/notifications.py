@@ -9,11 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import get_current_user, require_permission
 from app.db.models import Notification, NotificationHistory, NotificationRule, User
 from app.db.session import get_db
-
 from app.schemas.notification import (
     MarkAllReadResponse,
     NotificationHistoryListResponse,
-    NotificationHistoryResponse,
     NotificationListResponse,
     NotificationResponse,
     NotificationRuleCreate,

@@ -26,7 +26,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.schemas.notification import NotificationChannel
 from app.schemas.ticket import TicketSlaMetricType
 
-
 # ==========================================================
 # Enums
 # ==========================================================

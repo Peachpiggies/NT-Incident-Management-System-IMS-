@@ -13,7 +13,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.common import DepartmentSummary, PrioritySummary, StatusSummary
 
-
 # ==========================================================
 # Enums
 # ==========================================================

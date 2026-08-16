@@ -10,6 +10,7 @@ directly.
 from __future__ import annotations
 
 from collections.abc import Generator
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
@@ -33,7 +34,7 @@ def get_db() -> Generator[Session, None, None]:
 
 def get_current_user(
     token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db),  # noqa: B008 — standard FastAPI dependency injection pattern
 ) -> User:
     # decode_access_token already raises HTTPException(401) for a bad,
     # expired, or wrong-type token -- nothing to catch here.

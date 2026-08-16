@@ -6,391 +6,198 @@ directly from `app.schemas` instead of the individual submodules.
 """
 
 from app.schemas.attachments import (
-
     AttachmentBase,
-
     AttachmentListResponse,
-
     AttachmentResponse,
-
     AttachmentSummary,
-
     AttachmentUpload,
-
 )
-
 from app.schemas.auth import (
-
     ChangePasswordRequest,
-
     CurrentUser,
-
     ForgotPasswordRequest,
-
     LoginRequest,
-
     LoginResponse,
-
     LogoutRequest,
-
     MessageResponse,
-
     RefreshTokenRequest,
-
     RegisterRequest,
-
     SessionResponse,
-
     Token,
-
     TokenPayload,
-
 )
-
-from app.schemas.comment import (
-
-    CommentAuthor,
-
-    CommentBase,
-
-    CommentCreate,
-
-    CommentListResponse,
-
-    CommentResponse,
-
-    CommentUpdate,
-
-)
-
-from app.schemas.dashboard import (
-    
-    ChartDataPoint,
-    
-    DashboardOverviewResponse,
-    
-    DashboardSummaryResponse,
-    
-    DepartmentBreakdown,
-    
-    RecentActivityItem,
-    
-    TimeSeriesPoint,
-    
-)
-
-from app.schemas.notification import (
-    
-    EscalationNotificationCreate,
-    
-    EscalationNotificationResponse,
-    
-    MarkAllReadResponse,
-    
-    NotificationBroadcastCreate,
-    
-    NotificationChannel,
-    
-    NotificationCreate,
-    
-    NotificationDeliveryStatus,
-    
-    NotificationHistoryListResponse,
-    
-    NotificationHistoryResponse,
-    
-    NotificationListResponse,
-    
-    NotificationResponse,
-    
-    NotificationRuleCreate,
-    
-    NotificationRuleListResponse,
-    
-    NotificationRuleResponse,
-    
-    NotificationRuleUpdate,
-    
-    NotificationType,
-    
-    NotificationUpdate,
-    
-    UnreadCountResponse,
-    
-)
-
-from app.schemas.sla_engine import (
-
-    SLABreachListResponse,
-
-    SLABreachResponse,
-
-    SLAEscalationTriggerCreate,
-
-    SLAEscalationTriggerListResponse,
-
-    SLAEscalationTriggerResponse,
-
-    SLAEscalationTriggerUpdate,
-
-    SLAPauseRuleCreate,
-
-    SLAPauseRuleResponse,
-
-    SLAPolicyCreate,
-
-    SLAPolicyListResponse,
-
-    SLAPolicyResponse,
-
-    SLAPolicyUpdate,
-
-    SLATargetCreate,
-
-    SLATargetResponse,
-
-    SLATargetUpdate,
-
-    SLATimerPause,
-
-    SLATimerResponse,
-
-    SLATimerResume,
-
-    SlaBreachStatus,
-
-    SlaMetricType,
-
-    SlaTimerState,
-
-)
-
-from app.schemas.knowledge_base import (
-
-    KBArticleArchive,
-
-    KBArticleCreate,
-
-    KBArticleIncidentLinkCreate,
-
-    KBArticleIncidentLinkListResponse,
-
-    KBArticleIncidentLinkResponse,
-
-    KBArticleListResponse,
-
-    KBArticleResponse,
-
-    KBArticleRestore,
-
-    KBArticleReviewDecision,
-
-    KBArticleStatusResponse,
-
-    KBArticleStatusSummary,
-
-    KBArticleSubmitForReview,
-
-    KBArticleSummary,
-
-    KBArticleUpdate,
-
-    KBArticleVersionListResponse,
-
-    KBArticleVersionResponse,
-
-    KBCategoryCreate,
-
-    KBCategoryListResponse,
-
-    KBCategoryResponse,
-
-    KBCategoryUpdate,
-
-)
-
-from app.schemas.rca import (
-
-    BusinessImpactLevel,
-
-    ContributingFactorCreate,
-
-    ContributingFactorResponse,
-
-    ContributingFactorUpdate,
-
-    ImpactAnalysisCreate,
-
-    ImpactAnalysisResponse,
-
-    ImpactAnalysisUpdate,
-
-    RCAReportApprove,
-
-    RCAReportCreate,
-
-    RCAReportListResponse,
-
-    RCAReportResponse,
-
-    RCAReportStatus,
-
-    RCAReportUpdate,
-
-    RootCauseCreate,
-
-    RootCauseResponse,
-
-    RootCauseUpdate,
-
-)
-
-from app.schemas.problem import (
-
-    KnownErrorCreate,
-
-    KnownErrorListResponse,
-
-    KnownErrorResponse,
-
-    KnownErrorUpdate,
-
-    PermanentFixCreate,
-
-    PermanentFixResponse,
-
-    PermanentFixUpdate,
-
-    ProblemCreate,
-
-    ProblemIncidentLinkCreate,
-
-    ProblemIncidentLinkListResponse,
-
-    ProblemIncidentLinkResponse,
-
-    ProblemListResponse,
-
-    ProblemResponse,
-
-    ProblemStatus,
-
-    ProblemStatusUpdate,
-
-    ProblemSummary,
-
-    ProblemUpdate,
-
-    WorkaroundCreate,
-
-    WorkaroundEffectiveness,
-
-    WorkaroundListResponse,
-
-    WorkaroundResponse,
-
-    WorkaroundUpdate,
-
-)
-
 from app.schemas.change_management import (
-
     ApprovalDecision,
-
     ChangeApprovalCreate,
-
     ChangeApprovalListResponse,
-
     ChangeApprovalResponse,
-
     ChangeImplementationCreate,
-
     ChangeImplementationResponse,
-
     ChangeImplementationUpdate,
-
     ChangeRequestCreate,
-
     ChangeRequestListResponse,
-
     ChangeRequestResponse,
-
     ChangeRequestSummary,
-
     ChangeRequestUpdate,
-
     ChangeRollbackCreate,
-
     ChangeRollbackResponse,
-
     ChangeStatus,
-
     ChangeType,
-
     ChangeValidationCreate,
-
     ChangeValidationResponse,
-
     RiskAssessmentCreate,
-
     RiskAssessmentResponse,
-
     RiskAssessmentUpdate,
-
     RiskLevel,
-
 )
-
+from app.schemas.comment import (
+    CommentAuthor,
+    CommentBase,
+    CommentCreate,
+    CommentListResponse,
+    CommentResponse,
+    CommentUpdate,
+)
+from app.schemas.dashboard import (
+    ChartDataPoint,
+    DashboardOverviewResponse,
+    DashboardSummaryResponse,
+    DepartmentBreakdown,
+    RecentActivityItem,
+    TimeSeriesPoint,
+)
+from app.schemas.knowledge_base import (
+    KBArticleArchive,
+    KBArticleCreate,
+    KBArticleIncidentLinkCreate,
+    KBArticleIncidentLinkListResponse,
+    KBArticleIncidentLinkResponse,
+    KBArticleListResponse,
+    KBArticleResponse,
+    KBArticleRestore,
+    KBArticleReviewDecision,
+    KBArticleStatusResponse,
+    KBArticleStatusSummary,
+    KBArticleSubmitForReview,
+    KBArticleSummary,
+    KBArticleUpdate,
+    KBArticleVersionListResponse,
+    KBArticleVersionResponse,
+    KBCategoryCreate,
+    KBCategoryListResponse,
+    KBCategoryResponse,
+    KBCategoryUpdate,
+)
+from app.schemas.notification import (
+    EscalationNotificationCreate,
+    EscalationNotificationResponse,
+    MarkAllReadResponse,
+    NotificationBroadcastCreate,
+    NotificationChannel,
+    NotificationCreate,
+    NotificationDeliveryStatus,
+    NotificationHistoryListResponse,
+    NotificationHistoryResponse,
+    NotificationListResponse,
+    NotificationResponse,
+    NotificationRuleCreate,
+    NotificationRuleListResponse,
+    NotificationRuleResponse,
+    NotificationRuleUpdate,
+    NotificationType,
+    NotificationUpdate,
+    UnreadCountResponse,
+)
+from app.schemas.problem import (
+    KnownErrorCreate,
+    KnownErrorListResponse,
+    KnownErrorResponse,
+    KnownErrorUpdate,
+    PermanentFixCreate,
+    PermanentFixResponse,
+    PermanentFixUpdate,
+    ProblemCreate,
+    ProblemIncidentLinkCreate,
+    ProblemIncidentLinkListResponse,
+    ProblemIncidentLinkResponse,
+    ProblemListResponse,
+    ProblemResponse,
+    ProblemStatus,
+    ProblemStatusUpdate,
+    ProblemSummary,
+    ProblemUpdate,
+    WorkaroundCreate,
+    WorkaroundEffectiveness,
+    WorkaroundListResponse,
+    WorkaroundResponse,
+    WorkaroundUpdate,
+)
+from app.schemas.rca import (
+    BusinessImpactLevel,
+    ContributingFactorCreate,
+    ContributingFactorResponse,
+    ContributingFactorUpdate,
+    ImpactAnalysisCreate,
+    ImpactAnalysisResponse,
+    ImpactAnalysisUpdate,
+    RCAReportApprove,
+    RCAReportCreate,
+    RCAReportListResponse,
+    RCAReportResponse,
+    RCAReportStatus,
+    RCAReportUpdate,
+    RootCauseCreate,
+    RootCauseResponse,
+    RootCauseUpdate,
+)
+from app.schemas.sla_engine import (
+    SLABreachListResponse,
+    SLABreachResponse,
+    SlaBreachStatus,
+    SLAEscalationTriggerCreate,
+    SLAEscalationTriggerListResponse,
+    SLAEscalationTriggerResponse,
+    SLAEscalationTriggerUpdate,
+    SlaMetricType,
+    SLAPauseRuleCreate,
+    SLAPauseRuleResponse,
+    SLAPolicyCreate,
+    SLAPolicyListResponse,
+    SLAPolicyResponse,
+    SLAPolicyUpdate,
+    SLATargetCreate,
+    SLATargetResponse,
+    SLATargetUpdate,
+    SLATimerPause,
+    SLATimerResponse,
+    SLATimerResume,
+    SlaTimerState,
+)
 from app.schemas.vendor import (
-
     ContractStatus,
-
     VendorContactCreate,
-
     VendorContactResponse,
-
     VendorContactUpdate,
-
     VendorContractCreate,
-
     VendorContractListResponse,
-
     VendorContractResponse,
-
     VendorContractUpdate,
-
     VendorCreate,
-
     VendorIncidentCreate,
-
     VendorIncidentListResponse,
-
     VendorIncidentResponse,
-
     VendorIncidentStatus,
-
     VendorIncidentUpdate,
-
     VendorListResponse,
-
     VendorPerformanceCreate,
-
     VendorPerformanceListResponse,
-
     VendorPerformanceResponse,
-
     VendorResponse,
-
     VendorSLACreate,
-
     VendorSLAResponse,
-
     VendorSLAUpdate,
-
     VendorSummary,
-
     VendorUpdate,
-
 )
 
 __all__ = [

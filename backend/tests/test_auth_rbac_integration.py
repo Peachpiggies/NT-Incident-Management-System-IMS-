@@ -2,99 +2,55 @@ import asyncio
 from uuid import uuid4
 
 import pytest
-from app.schemas.auth import (RefreshTokenRequest, RegisterRequest)
-
-from app.api.v1.auth import (
-    
-    list_sessions,
-    
-    refresh,
-    
-    register,
-    
-    revoke_all_sessions,
-    
-    revoke_session,
-    
-)
-
-from app.api.v1.dependencies import (
-    
-    require_permission,
-    
-    require_ticket_read,
-    
-    ticket_read_scope,
-    
-    user_has_permission,
-    
-)
-
-from app.api.v1.organization import (
-    
-    RoleRequest,
-    
-    assign_user_role,
-    
-    create_role,
-    
-    remove_user_role,
-    
-)
-
-from app.api.v1.permissions import (
-    
-    PermissionRequest,
-    
-    assign_role_permission,
-    
-    create_permission,
-    
-    remove_role_permission,
-    
-)
-
-from app.api.v1.users import (
-    
-    UserCreateRequest,
-    
-    UserUpdateRequest,
-    
-    activate_user,
-    
-    create_user,
-    
-    deactivate_user,
-    
-    update_user,
-    
-)
-
-from app.db.models import (
-    
-    Base,
-    
-    Department,
-    
-    Permission,
-    
-    RefreshToken,
-    
-    Role,
-    
-    RolePermission,
-    
-    Ticket,
-    
-    User,
-    
-    UserRole,
-    
-)
-
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from app.api.v1.auth import (
+    list_sessions,
+    refresh,
+    register,
+    revoke_all_sessions,
+    revoke_session,
+)
+from app.api.v1.dependencies import (
+    require_permission,
+    require_ticket_read,
+    ticket_read_scope,
+    user_has_permission,
+)
+from app.api.v1.organization import (
+    RoleRequest,
+    assign_user_role,
+    create_role,
+    remove_user_role,
+)
+from app.api.v1.permissions import (
+    PermissionRequest,
+    assign_role_permission,
+    create_permission,
+    remove_role_permission,
+)
+from app.api.v1.users import (
+    UserCreateRequest,
+    UserUpdateRequest,
+    activate_user,
+    create_user,
+    deactivate_user,
+    update_user,
+)
+from app.db.models import (
+    Base,
+    Department,
+    Permission,
+    RefreshToken,
+    Role,
+    RolePermission,
+    Ticket,
+    User,
+    UserRole,
+)
+from app.schemas.auth import RefreshTokenRequest, RegisterRequest
 
 
 async def _session_factory(tmp_path):

@@ -14,7 +14,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.v1.dependencies import get_current_user, require_permission, user_has_permission
+from app.api.v1.dependencies import (
+    get_current_user,
+    require_permission,
+    user_has_permission,
+)
 from app.db.models import (
     KBArticle,
     KBArticleIncidentLink,
@@ -37,10 +41,8 @@ from app.schemas.knowledge_base import (
     KBArticleReviewDecision,
     KBArticleStatusResponse,
     KBArticleSubmitForReview,
-    KBArticleSummary,
     KBArticleUpdate,
     KBArticleVersionListResponse,
-    KBArticleVersionResponse,
     KBCategoryCreate,
     KBCategoryListResponse,
     KBCategoryResponse,
