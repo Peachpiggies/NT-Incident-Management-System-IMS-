@@ -9,6 +9,7 @@ from app.api.v1.attachments import router as attachments_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.categories import router as categories_router
 from app.api.v1.health import router as health_router
+from app.api.v1.knowledge_base import router as knowledge_base_router
 from app.api.v1.notifications import router as notifications_router
 from app.api.v1.organization import router as organization_router
 from app.api.v1.permissions import router as permissions_router
@@ -117,6 +118,10 @@ session endpoints and are never returned by session-listing APIs.
             "name": "Attachments",
             "description": "Secure JPG, PNG, PDF, DOCX, and XLSX ticket attachments.",
         },
+        {
+            "name": "Knowledge Base",
+            "description": "KB categories, articles, versioning, the publishing workflow, and article-incident linking.",
+        },
     ],
     openapi_url="/api/v1/openapi.json",
     docs_url="/docs",
@@ -140,5 +145,6 @@ app.include_router(organization_router, prefix="/api/v1")
 app.include_router(permissions_router, prefix="/api/v1")
 app.include_router(sla_router, prefix="/api/v1")
 app.include_router(tickets_router, prefix="/api/v1")
+app.include_router(knowledge_base_router, prefix="/api/v1")
 app.include_router(workflow_router, prefix="/api/v1")
 app.include_router(health_router, prefix="/api/v1")

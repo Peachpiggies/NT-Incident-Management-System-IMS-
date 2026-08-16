@@ -7,6 +7,9 @@ from sqlalchemy import select
 from app.core.security import hash_password
 from app.db.models import (
     Department,
+    KBArticleStatus,
+    KBArticleStatusTransition,
+    KBCategory,
     Permission,
     Role,
     RolePermission,
@@ -57,6 +60,14 @@ PERMISSIONS = [
     ("role", "manage"),
     ("department", "manage"),
     ("configuration", "manage"),
+    ("kb", "create"),
+    ("kb", "update"),
+    ("kb", "delete"),
+    ("kb", "submit"),
+    ("kb", "review"),
+    ("kb", "archive"),
+    ("kb", "restore"),
+    ("kb", "link_incident"),
 ]
 
 ROLE_PERMISSION_CODES = {
@@ -80,6 +91,10 @@ ROLE_PERMISSION_CODES = {
         "ticket.resolve",
         "ticket.close",
         "ticket.reopen",
+        "kb.create",
+        "kb.update",
+        "kb.submit",
+        "kb.link_incident",
     },
     "helpdesk_t2": {
         "ticket.read_all",
@@ -93,6 +108,10 @@ ROLE_PERMISSION_CODES = {
         "ticket.resolve",
         "ticket.close",
         "ticket.reopen",
+        "kb.create",
+        "kb.update",
+        "kb.submit",
+        "kb.link_incident",
     },
     "manager": {
         "ticket.read_all",
@@ -105,6 +124,11 @@ ROLE_PERMISSION_CODES = {
         "dashboard.view",
         "report.view",
         "user.manage",
+        "kb.review",
+        "kb.archive",
+        "kb.restore",
+        "kb.delete",
+        "kb.link_incident",
     },
     "admin": {f"{module}.{action}" for module, action in PERMISSIONS},
 }
@@ -340,6 +364,64 @@ async def seed_database() -> None:
                         required_permission=required_permission,
                         is_active=True,
                     )
+                )
+
+        kb_statuses = {}
+        for code, name, color, sort_order in [
+            ("DRAFT", "Draft", "#6B7280", 10),
+            ("IN_REVIEW", "In Review", "#D97706", 20),
+            ("PUBLISHED", "Published", "#16A34A", 30),
+            ("ARCHIVED", "Archived", "#374151", 40),
+        ]:
+            kb_statuses[code] = await _get_or_create(
+                session,
+                KBArticleStatus,
+                code,
+                name=name,
+                color=color,
+                sort_order=sort_order,
+                is_active=True,
+            )
+
+        for from_code, to_code, required_permission in [
+            ("DRAFT", "IN_REVIEW", "kb.submit"),
+            ("IN_REVIEW", "PUBLISHED", "kb.review"),
+            ("IN_REVIEW", "DRAFT", "kb.review"),
+            ("PUBLISHED", "ARCHIVED", "kb.archive"),
+            ("ARCHIVED", "DRAFT", "kb.restore"),
+        ]:
+            exists = await session.scalar(
+                select(KBArticleStatusTransition).where(
+                    KBArticleStatusTransition.from_status_id == kb_statuses[from_code].id,
+                    KBArticleStatusTransition.to_status_id == kb_statuses[to_code].id,
+                )
+            )
+            if exists is None:
+                session.add(
+                    KBArticleStatusTransition(
+                        from_status_id=kb_statuses[from_code].id,
+                        to_status_id=kb_statuses[to_code].id,
+                        required_permission=required_permission,
+                        is_active=True,
+                    )
+                )
+
+        for name, sort_order in [
+            ("Network", 10),
+            ("Email", 20),
+            ("Hardware", 30),
+            ("Application", 40),
+            ("Account & Access", 50),
+            ("General", 60),
+        ]:
+            existing = await session.scalar(
+                select(KBCategory).where(
+                    KBCategory.name == name, KBCategory.parent_id.is_(None)
+                )
+            )
+            if existing is None:
+                session.add(
+                    KBCategory(name=name, sort_order=sort_order, is_active=True)
                 )
 
         admin = await session.scalar(select(User).where(User.email == ADMIN_EMAIL))

@@ -167,8 +167,6 @@ from app.schemas.sla_engine import (
 
 from app.schemas.knowledge_base import (
 
-    ArticleStatus,
-
     KBArticleArchive,
 
     KBArticleCreate,
@@ -183,9 +181,13 @@ from app.schemas.knowledge_base import (
 
     KBArticleResponse,
 
+    KBArticleRestore,
+
     KBArticleReviewDecision,
 
     KBArticleStatusResponse,
+
+    KBArticleStatusSummary,
 
     KBArticleSubmitForReview,
 
@@ -474,7 +476,6 @@ __all__ = [
     "SlaTimerState",
 
     # knowledge_base
-    "ArticleStatus",
     "KBArticleArchive",
     "KBArticleCreate",
     "KBArticleIncidentLinkCreate",
@@ -482,8 +483,10 @@ __all__ = [
     "KBArticleIncidentLinkResponse",
     "KBArticleListResponse",
     "KBArticleResponse",
+    "KBArticleRestore",
     "KBArticleReviewDecision",
     "KBArticleStatusResponse",
+    "KBArticleStatusSummary",
     "KBArticleSubmitForReview",
     "KBArticleSummary",
     "KBArticleUpdate",

@@ -881,3 +881,173 @@ class SLAEscalationEvent(BaseModel):
 
     trigger: Mapped[SLAEscalationTrigger] = relationship()
     timer: Mapped[TicketSlaTimer] = relationship()
+
+# ==========================================================
+# Knowledge Base
+# ==========================================================
+
+
+class KBArticleStatus(BaseModel):
+    """Configurable publishing-workflow state for KB articles, mirroring
+    TicketStatus so administrators can adapt the workflow without a
+    deployment."""
+
+    __tablename__ = "kb_article_statuses"
+    __table_args__ = (UniqueConstraint("code", name="uq_kb_article_statuses_code"),)
+
+    code: Mapped[str] = mapped_column(String(50), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    color: Mapped[str | None] = mapped_column(String(20))
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    articles: Mapped[list[KBArticle]] = relationship(back_populates="status")
+    transitions_from: Mapped[list[KBArticleStatusTransition]] = relationship(
+        back_populates="from_status",
+        foreign_keys="KBArticleStatusTransition.from_status_id",
+    )
+    transitions_to: Mapped[list[KBArticleStatusTransition]] = relationship(
+        back_populates="to_status",
+        foreign_keys="KBArticleStatusTransition.to_status_id",
+    )
+
+
+class KBArticleStatusTransition(BaseModel):
+    """An administrator-configured, directed edge in the KB article
+    publishing state machine."""
+
+    __tablename__ = "kb_article_status_transitions"
+    __table_args__ = (
+        UniqueConstraint(
+            "from_status_id", "to_status_id", name="uq_kb_article_status_transitions_edge"
+        ),
+        Index(
+            "ix_kb_article_status_transitions_from_active", "from_status_id", "is_active"
+        ),
+    )
+
+    from_status_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("kb_article_statuses.id"), nullable=False, index=True
+    )
+    to_status_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("kb_article_statuses.id"), nullable=False, index=True
+    )
+    required_permission: Mapped[str | None] = mapped_column(String(200))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    from_status: Mapped[KBArticleStatus] = relationship(
+        back_populates="transitions_from", foreign_keys=[from_status_id]
+    )
+    to_status: Mapped[KBArticleStatus] = relationship(
+        back_populates="transitions_to", foreign_keys=[to_status_id]
+    )
+
+
+class KBCategory(BaseModel):
+    """Self-referential KB category tree, mirroring Department."""
+
+    __tablename__ = "kb_categories"
+
+    name: Mapped[str] = mapped_column(String(150), nullable=False)
+    parent_id: Mapped[UUID | None] = mapped_column(
+        Uuid, ForeignKey("kb_categories.id")
+    )
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    parent: Mapped[KBCategory | None] = relationship(
+        remote_side="KBCategory.id", back_populates="children"
+    )
+    children: Mapped[list[KBCategory]] = relationship(back_populates="parent")
+    articles: Mapped[list[KBArticle]] = relationship(back_populates="category")
+
+
+class KBArticle(BaseModel):
+    __tablename__ = "kb_articles"
+    __table_args__ = (
+        Index("ix_kb_articles_status_category", "status_id", "category_id"),
+    )
+
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    summary: Mapped[str | None] = mapped_column(String(500))
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    category_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("kb_categories.id"), nullable=False, index=True
+    )
+    tags: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    status_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("kb_article_statuses.id"), nullable=False, index=True
+    )
+    current_version_no: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    author_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("users.id"), nullable=False, index=True
+    )
+    view_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    category: Mapped[KBCategory] = relationship(back_populates="articles")
+    status: Mapped[KBArticleStatus] = relationship(back_populates="articles")
+    author: Mapped[User] = relationship(foreign_keys=[author_id])
+    versions: Mapped[list[KBArticleVersion]] = relationship(
+        back_populates="article", foreign_keys="KBArticleVersion.article_id"
+    )
+    incident_links: Mapped[list[KBArticleIncidentLink]] = relationship(
+        back_populates="article", foreign_keys="KBArticleIncidentLink.article_id"
+    )
+
+
+class KBArticleVersion(BaseModel):
+    """A snapshot taken at submit-for-review and at publish time (not on
+    every plain edit) -- see app/services/knowledge_base.py."""
+
+    __tablename__ = "kb_article_versions"
+    __table_args__ = (
+        UniqueConstraint("article_id", "version_no", name="uq_kb_article_versions_article_no"),
+    )
+
+    article_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("kb_articles.id"), nullable=False, index=True
+    )
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    change_summary: Mapped[str | None] = mapped_column(String(500))
+    changed_by_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("users.id"), nullable=False
+    )
+
+    article: Mapped[KBArticle] = relationship(
+        back_populates="versions", foreign_keys=[article_id]
+    )
+    changed_by: Mapped[User] = relationship(foreign_keys=[changed_by_id])
+
+
+class KBArticleIncidentLink(BaseModel):
+    """Join table linking a KB article to a ticket (incident)."""
+
+    __tablename__ = "kb_article_incident_links"
+    __table_args__ = (
+        UniqueConstraint(
+            "article_id", "ticket_id", name="uq_kb_article_incident_links_article_ticket"
+        ),
+    )
+
+    article_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("kb_articles.id"), nullable=False, index=True
+    )
+    ticket_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("tickets.id"), nullable=False, index=True
+    )
+    note: Mapped[str | None] = mapped_column(String(500))
+    linked_by_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("users.id"), nullable=False
+    )
+    linked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    article: Mapped[KBArticle] = relationship(
+        back_populates="incident_links", foreign_keys=[article_id]
+    )
+    ticket: Mapped[Ticket] = relationship(foreign_keys=[ticket_id])
+    linked_by: Mapped[User] = relationship(foreign_keys=[linked_by_id])
