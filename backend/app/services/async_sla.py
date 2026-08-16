@@ -9,6 +9,7 @@ without duplicating the SLA rules in a second implementation.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from uuid import UUID
 
@@ -136,22 +137,51 @@ async def evaluate_escalations(
     *,
     as_of: datetime | None = None,
     limit: int = 500,
-) -> int:
-    # Notification dispatch is deliberately not performed here. The existing
-    # engine records SLAEscalationEvent rows; the application can consume
-    # those events through its normal notification mechanism.
-    return len(
-        await db.run_sync(
-            lambda session: sla_engine.evaluate_escalations(
-                session, as_of=as_of, limit=limit
-            )
-        )
-    )
+) -> list[dict]:
+    """Returns plain dicts (not ORM objects -- the sync Session inside
+    `run_sync` closes before this returns, so ORM objects from it aren't
+    safe to touch afterwards) describing each SLAEscalationEvent fired this
+    sweep, for the caller to notify on via app.services.notification_engine.
+    """
+
+    def _run(session):
+        events = sla_engine.evaluate_escalations(session, as_of=as_of, limit=limit)
+        return [
+            {
+                "trigger_id": event.trigger_id,
+                "ticket_id": event.ticket_id,
+            }
+            for event in events
+        ]
+
+    return await db.run_sync(_run)
 
 
 async def run_scheduler_tick(db: AsyncSession, *, limit: int = 500) -> tuple[int, int]:
-    """Run breach detection followed by SLA escalation evaluation atomically."""
+    """Run breach detection, SLA escalation evaluation, and notification
+    dispatch for any escalations that just fired -- atomically for the
+    detection/evaluation part; notification dispatch (and its own commit)
+    happens after, so a delivery hiccup can't roll back the escalation
+    event itself."""
+    from app.db.models import SLAEscalationTrigger, Ticket
+    from app.services import notification_engine
+
     breached = await evaluate_breaches(db, limit=limit)
-    escalated = await evaluate_escalations(db, limit=limit)
+    fired = await evaluate_escalations(db, limit=limit)
     await db.commit()
-    return breached, escalated
+
+    for entry in fired:
+        trigger = await db.get(SLAEscalationTrigger, entry["trigger_id"])
+        ticket = await db.get(Ticket, entry["ticket_id"])
+        if trigger is None or ticket is None or not trigger.channels:
+            continue
+        try:
+            await notification_engine.dispatch_escalation(db, trigger=trigger, ticket=ticket)
+        except Exception:  # noqa: BLE001 - one bad dispatch must not break the scheduler loop
+            logging.getLogger(__name__).exception(
+                "Escalation notification dispatch failed trigger=%s ticket=%s",
+                entry["trigger_id"],
+                entry["ticket_id"],
+            )
+
+    return breached, len(fired)

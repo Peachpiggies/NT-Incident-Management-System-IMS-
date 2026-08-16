@@ -1051,3 +1051,93 @@ class KBArticleIncidentLink(BaseModel):
     )
     ticket: Mapped[Ticket] = relationship(foreign_keys=[ticket_id])
     linked_by: Mapped[User] = relationship(foreign_keys=[linked_by_id])
+
+
+# ==========================================================
+# Notification Engine
+# ==========================================================
+
+
+class NotificationRule(BaseModel):
+    """Config-level rule: 'when `event_type` happens, notify these
+    recipients on these channels'. `channels`/`recipient_role_ids`/
+    `recipient_user_ids` are JSON lists (channel codes / role or user UUID
+    strings) rather than join tables, mirroring `SLAEscalationTrigger`'s
+    `notify_user_ids`/`notify_role_ids`/`channels` columns.
+
+    `template_id` is a forward-looking, unenforced reference: there is no
+    NotificationTemplate table yet, so it is stored but not validated or
+    used for rendering.
+    """
+
+    __tablename__ = "notification_rules"
+
+    name: Mapped[str] = mapped_column(String(150), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    channels: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    recipient_role_ids: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    recipient_user_ids: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    template_id: Mapped[UUID | None] = mapped_column(Uuid)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class EscalationNotification(BaseModel):
+    """One row per (ticket, escalation trigger, channel) dispatch attempt
+    fired by the SLA engine's escalation sweep -- see
+    app/services/notification_engine.py:dispatch_escalation and
+    app/services/async_sla.py:run_scheduler_tick."""
+
+    __tablename__ = "escalation_notifications"
+
+    ticket_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("tickets.id"), nullable=False, index=True
+    )
+    escalation_trigger_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("sla_escalation_triggers.id"), nullable=False, index=True
+    )
+    channel: Mapped[str] = mapped_column(String(20), nullable=False)
+    recipient_user_ids: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    message: Mapped[str] = mapped_column(String(2000), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    ticket: Mapped[Ticket] = relationship()
+    escalation_trigger: Mapped[SLAEscalationTrigger] = relationship()
+
+
+class NotificationHistory(BaseModel):
+    """Delivery log: one row per attempted delivery on a channel to a single
+    recipient, covering both regular `NotificationRule`-driven dispatches
+    and `EscalationNotification` dispatches. At most one of
+    `notification_id` / `escalation_notification_id` is set -- escalation
+    dispatch always sets `escalation_notification_id`; a rule-driven
+    dispatch sets `notification_id` only for the in-app channel (where an
+    actual `Notification` row was written) and leaves both NULL for other
+    channels (email/SMS/websocket), which have no per-delivery parent
+    record of their own."""
+
+    __tablename__ = "notification_history"
+    __table_args__ = (
+        CheckConstraint(
+            "NOT (notification_id IS NOT NULL AND escalation_notification_id IS NOT NULL)",
+            name="ck_notification_history_not_both_sources",
+        ),
+    )
+
+    notification_id: Mapped[UUID | None] = mapped_column(
+        Uuid, ForeignKey("notifications.id"), index=True
+    )
+    escalation_notification_id: Mapped[UUID | None] = mapped_column(
+        Uuid, ForeignKey("escalation_notifications.id"), index=True
+    )
+    channel: Mapped[str] = mapped_column(String(20), nullable=False)
+    recipient_user_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("users.id"), nullable=False, index=True
+    )
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    error_message: Mapped[str | None] = mapped_column(String(1000))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    notification: Mapped[Notification | None] = relationship()
+    escalation_notification: Mapped[EscalationNotification | None] = relationship()
+    recipient: Mapped[User] = relationship(foreign_keys=[recipient_user_id])

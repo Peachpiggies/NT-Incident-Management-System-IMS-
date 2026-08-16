@@ -32,6 +32,24 @@ class Settings(BaseSettings):
     clamav_port: int = 3310
     clamav_timeout: float = 10.0
 
+    # --- Notification Engine: Email (SMTP) ---
+    # Left empty by default. When smtp_host is unset, the email sender logs
+    # instead of connecting to a real server -- fine for local dev/tests, but
+    # deployments that want email delivery must set these.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = "noreply@example.com"
+    smtp_use_tls: bool = True
+
+    # --- Notification Engine: SMS (Twilio) ---
+    # Same story: unset twilio_account_sid means SMS delivery is logged
+    # rather than actually sent.
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
+    twilio_from_number: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

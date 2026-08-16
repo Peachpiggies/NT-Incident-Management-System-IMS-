@@ -10,6 +10,7 @@ from app.db.models import (
     KBArticleStatus,
     KBArticleStatusTransition,
     KBCategory,
+    NotificationRule,
     Permission,
     Role,
     RolePermission,
@@ -68,6 +69,7 @@ PERMISSIONS = [
     ("kb", "archive"),
     ("kb", "restore"),
     ("kb", "link_incident"),
+    ("notification", "manage"),
 ]
 
 ROLE_PERMISSION_CODES = {
@@ -129,6 +131,7 @@ ROLE_PERMISSION_CODES = {
         "kb.restore",
         "kb.delete",
         "kb.link_incident",
+        "notification.manage",
     },
     "admin": {f"{module}.{action}" for module, action in PERMISSIONS},
 }
@@ -422,6 +425,30 @@ async def seed_database() -> None:
             if existing is None:
                 session.add(
                     KBCategory(name=name, sort_order=sort_order, is_active=True)
+                )
+
+        for name, event_type, channels in [
+            # "in_app" is deliberately excluded here: the ticket endpoints
+            # that fire these events (assign/resolve, see app/api/v1/tickets.py)
+            # already write an in-app Notification directly. These rules
+            # only add the extra channels on top of that.
+            ("Ticket assigned", "ticket.assigned", ["email"]),
+            ("Ticket resolved", "ticket.resolved", ["email"]),
+            ("SLA breach warning", "sla.warning", ["in_app", "email", "sms"]),
+        ]:
+            existing_rule = await session.scalar(
+                select(NotificationRule).where(NotificationRule.event_type == event_type)
+            )
+            if existing_rule is None:
+                session.add(
+                    NotificationRule(
+                        name=name,
+                        event_type=event_type,
+                        channels=channels,
+                        recipient_role_ids=[],
+                        recipient_user_ids=[],
+                        is_active=True,
+                    )
                 )
 
         admin = await session.scalar(select(User).where(User.email == ADMIN_EMAIL))

@@ -13,6 +13,7 @@ from app.api.v1.knowledge_base import router as knowledge_base_router
 from app.api.v1.notifications import router as notifications_router
 from app.api.v1.organization import router as organization_router
 from app.api.v1.permissions import router as permissions_router
+from app.api.v1.realtime import router as realtime_router
 from app.api.v1.sla import router as sla_router
 from app.api.v1.tickets import router as tickets_router
 from app.api.v1.users import router as users_router
@@ -122,6 +123,10 @@ session endpoints and are never returned by session-listing APIs.
             "name": "Knowledge Base",
             "description": "KB categories, articles, versioning, the publishing workflow, and article-incident linking.",
         },
+        {
+            "name": "Realtime",
+            "description": "WebSocket channel for realtime notification delivery.",
+        },
     ],
     openapi_url="/api/v1/openapi.json",
     docs_url="/docs",
@@ -143,6 +148,7 @@ app.include_router(attachments_router, prefix="/api/v1")
 app.include_router(notifications_router, prefix="/api/v1")
 app.include_router(organization_router, prefix="/api/v1")
 app.include_router(permissions_router, prefix="/api/v1")
+app.include_router(realtime_router, prefix="/api/v1")
 app.include_router(sla_router, prefix="/api/v1")
 app.include_router(tickets_router, prefix="/api/v1")
 app.include_router(knowledge_base_router, prefix="/api/v1")

@@ -5,6 +5,7 @@ uses the retired Python enums or integer ticket/customer identifiers.
 """
 
 from datetime import datetime, timezone
+import logging
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
@@ -49,6 +50,7 @@ from app.services.assignment import AssignmentService
 from app.services.escalation import TicketEscalationService
 from app.services.incident_tracking import IncidentTrackingService
 from app.services.async_sla import match_and_start_sla, mark_timer_met
+from app.services import notification_engine
 from app.services.workflow import TicketWorkflowService, commit_ticket_transaction
 
 # NOTE: TicketTechnicalEscalationRequest.reason_code and
@@ -443,6 +445,36 @@ def _notification(
     return Notification(
         user_id=user_id, title=title, message=message, type=notification_type
     )
+
+
+async def _dispatch_event(
+    db: AsyncSession,
+    event_type: str,
+    *,
+    title: str,
+    message: str,
+    extra_user_ids: list[UUID],
+) -> None:
+    """Fire the Notification Engine's rule-matched channels (email/SMS/etc)
+    for a ticket lifecycle event. Best-effort: a delivery problem here must
+    never fail the ticket action itself, so exceptions are logged and
+    swallowed. In-app notifications for these same events are written
+    directly by the calling endpoint (see `_notification` above) rather
+    than through this path -- see the "Ticket assigned"/"Ticket resolved"
+    seed rules' comment for why.
+    """
+    try:
+        await notification_engine.dispatch(
+            db,
+            event_type,
+            title=title,
+            message=message,
+            extra_user_ids=extra_user_ids,
+        )
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).exception(
+            "Notification dispatch failed event_type=%s", event_type
+        )
 
 
 async def _validate_mentioned_users(
@@ -1102,6 +1134,13 @@ async def assign_ticket(
         )
     )
     await commit_ticket_transaction(db)
+    await _dispatch_event(
+        db,
+        "ticket.assigned",
+        title="Ticket assigned",
+        message=f"{ticket.ticket_no} was assigned to you.",
+        extra_user_ids=[assignee.id],
+    )
     await _refresh_ticket_detail(db, ticket)
     return ticket
 
@@ -1384,6 +1423,13 @@ async def resolve_ticket(
         )
     )
     await commit_ticket_transaction(db)
+    await _dispatch_event(
+        db,
+        "ticket.resolved",
+        title="Ticket resolved",
+        message=f"{ticket.ticket_no} has been resolved.",
+        extra_user_ids=[ticket.requester_id],
+    )
     await _refresh_ticket_detail(db, ticket)
     return ticket
 

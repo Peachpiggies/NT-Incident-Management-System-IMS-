@@ -121,6 +121,7 @@ class NotificationChannel(str, Enum):
     EMAIL = "email"
     IN_APP = "in_app"
     WEBSOCKET = "websocket"
+    SMS = "sms"
 
 
 class NotificationDeliveryStatus(str, Enum):
