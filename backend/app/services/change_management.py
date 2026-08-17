@@ -231,9 +231,7 @@ class ChangeManagementService:
     ) -> ChangeRiskAssessment:
         if change.risk_assessment and not change.risk_assessment.is_deleted:
             raise HTTPException(status_code=409, detail="Risk assessment already exists")
-
         aggregate = self._aggregate(change)
-
         try:
             result = aggregate.assess_risk(
                 risk_level=risk_level,
@@ -244,7 +242,6 @@ class ChangeManagementService:
             )
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-
         row = ChangeRiskAssessment(
             change_request_id=change.id,
             risk_level=result.risk_level.value,
@@ -254,14 +251,11 @@ class ChangeManagementService:
             assessed_by_id=actor.id,
             created_by=actor.id,
         )
-
         self._apply_status(change, aggregate)
         change.updated_by = actor.id
-
         self.db.add(row)
         await self.db.commit()
         await self.db.refresh(row)
-
         return row
 
     async def approve(

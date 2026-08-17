@@ -102,6 +102,7 @@ PERMISSIONS = [
 
 ROLE_PERMISSION_CODES = {
     "customer": {
+        "dashboard.view",
         "ticket.create",
         "ticket.read_own",
         "ticket.comment",
@@ -109,6 +110,7 @@ ROLE_PERMISSION_CODES = {
         "ticket.update",
     },
     "helpdesk_t1": {
+        "dashboard.view",
         "ticket.read_all",
         "ticket.comment",
         "ticket.attachment_add",
@@ -127,6 +129,7 @@ ROLE_PERMISSION_CODES = {
         "kb.link_incident",
     },
     "helpdesk_t2": {
+        "dashboard.view",
         "ticket.read_all",
         "ticket.comment",
         "ticket.attachment_add",
