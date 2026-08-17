@@ -74,6 +74,11 @@ class RootCauseResponse(BaseModel):
     updated_at: datetime
 
 
+class RootCauseListResponse(BaseModel):
+    items: list[RootCauseResponse]
+    total: int
+
+
 # ==========================================================
 # Contributing Factors
 # ==========================================================
@@ -102,6 +107,11 @@ class ContributingFactorResponse(BaseModel):
     factor_type: str
     description: str
     created_at: datetime
+
+
+class ContributingFactorListResponse(BaseModel):
+    items: list[ContributingFactorResponse]
+    total: int
 
 
 # ==========================================================
@@ -140,6 +150,11 @@ class ImpactAnalysisResponse(ImpactAnalysisBase):
     updated_at: datetime
 
 
+class ImpactAnalysisListResponse(BaseModel):
+    items: list[ImpactAnalysisResponse]
+    total: int
+
+
 # ==========================================================
 # RCA Report
 # ==========================================================
@@ -174,7 +189,15 @@ class RCAReportUpdate(BaseModel):
     preventive_actions: str | None = Field(None, max_length=4000)
 
 
+class RCAReportSubmit(BaseModel):
+    comment: str | None = Field(None, max_length=1000)
+
+
 class RCAReportApprove(BaseModel):
+    comment: str | None = Field(None, max_length=1000)
+
+
+class RCAReportReject(BaseModel):
     comment: str | None = Field(None, max_length=1000)
 
 

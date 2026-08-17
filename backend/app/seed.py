@@ -70,6 +70,11 @@ PERMISSIONS = [
     ("kb", "restore"),
     ("kb", "link_incident"),
     ("notification", "manage"),
+    ("rca", "create"),
+    ("rca", "update"),
+    ("rca", "delete"),
+    ("rca", "submit"),
+    ("rca", "approve"),
 ]
 
 ROLE_PERMISSION_CODES = {
@@ -114,6 +119,9 @@ ROLE_PERMISSION_CODES = {
         "kb.update",
         "kb.submit",
         "kb.link_incident",
+        "rca.create",
+        "rca.update",
+        "rca.submit",
     },
     "manager": {
         "ticket.read_all",
@@ -132,6 +140,8 @@ ROLE_PERMISSION_CODES = {
         "kb.delete",
         "kb.link_incident",
         "notification.manage",
+        "rca.approve",
+        "rca.delete",
     },
     "admin": {f"{module}.{action}" for module, action in PERMISSIONS},
 }

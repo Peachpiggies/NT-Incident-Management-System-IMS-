@@ -19,6 +19,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -1141,3 +1142,134 @@ class NotificationHistory(BaseModel):
     notification: Mapped[Notification | None] = relationship()
     escalation_notification: Mapped[EscalationNotification | None] = relationship()
     recipient: Mapped[User] = relationship(foreign_keys=[recipient_user_id])
+
+
+# ==========================================================
+# Root Cause Analysis
+# ==========================================================
+# An RCA is anchored to either a ticket (incident-level RCA) or a problem
+# (problem-level RCA covering multiple related incidents) -- mirrors the
+# ticket_id/problem_id anchor already declared on app.schemas.rca.
+#
+# `problem_id` columns below are plain UUIDs with no FK yet: the
+# `problems` table doesn't exist until the Problem Management migration
+# lands. That migration adds the FK via `op.create_foreign_key` rather than
+# recreating these tables -- see its docstring.
+
+
+class RootCause(BaseModel):
+    """The identified root cause of an incident or problem. Contributing
+    factors, impact analysis, and the RCA report all hang off this."""
+
+    __tablename__ = "root_causes"
+    __table_args__ = (
+        CheckConstraint(
+            "ticket_id IS NOT NULL OR problem_id IS NOT NULL",
+            name="ck_root_causes_anchor",
+        ),
+        Index("ix_root_causes_ticket_id", "ticket_id"),
+        Index("ix_root_causes_problem_id", "problem_id"),
+    )
+
+    ticket_id: Mapped[UUID | None] = mapped_column(
+        Uuid, ForeignKey("tickets.id"), nullable=True
+    )
+    problem_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    category: Mapped[str] = mapped_column(String(100), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    identified_by_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("users.id"), nullable=False, index=True
+    )
+
+    ticket: Mapped[Ticket | None] = relationship()
+    identified_by: Mapped[User] = relationship(foreign_keys=[identified_by_id])
+    contributing_factors: Mapped[list[ContributingFactor]] = relationship(
+        back_populates="root_cause"
+    )
+    impact_analyses: Mapped[list[ImpactAnalysis]] = relationship(
+        back_populates="root_cause"
+    )
+    rca_reports: Mapped[list[RCAReport]] = relationship(back_populates="root_cause")
+
+
+class ContributingFactor(BaseModel):
+    __tablename__ = "contributing_factors"
+
+    root_cause_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("root_causes.id"), nullable=False, index=True
+    )
+    factor_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    description: Mapped[str] = mapped_column(String(2000), nullable=False)
+
+    root_cause: Mapped[RootCause] = relationship(back_populates="contributing_factors")
+
+
+class ImpactAnalysis(BaseModel):
+    __tablename__ = "impact_analyses"
+    __table_args__ = (
+        CheckConstraint(
+            "business_impact IN ('NONE', 'LOW', 'MEDIUM', 'HIGH', 'SEVERE')",
+            name="ck_impact_analyses_business_impact",
+        ),
+    )
+
+    root_cause_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("root_causes.id"), nullable=False, index=True
+    )
+    affected_service_ids: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    affected_users_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    downtime_minutes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    business_impact: Mapped[str] = mapped_column(
+        String(20), default="LOW", nullable=False
+    )
+    financial_impact: Mapped[float | None] = mapped_column(Numeric(14, 2))
+    notes: Mapped[str | None] = mapped_column(String(2000))
+
+    root_cause: Mapped[RootCause] = relationship(back_populates="impact_analyses")
+
+
+class RCAReport(BaseModel):
+    """The written postmortem artifact. `status` is a plain, fixed
+    three-value workflow (DRAFT -> IN_REVIEW -> APPROVED, or IN_REVIEW ->
+    DRAFT on rejection) -- unlike TicketStatus/KBArticleStatus this isn't
+    configurable master data, matching the fixed `RCAReportStatus` enum
+    already declared in app.schemas.rca."""
+
+    __tablename__ = "rca_reports"
+    __table_args__ = (
+        CheckConstraint(
+            "ticket_id IS NOT NULL OR problem_id IS NOT NULL",
+            name="ck_rca_reports_anchor",
+        ),
+        CheckConstraint(
+            "status IN ('DRAFT', 'IN_REVIEW', 'APPROVED')",
+            name="ck_rca_reports_status",
+        ),
+        Index("ix_rca_reports_ticket_id", "ticket_id"),
+        Index("ix_rca_reports_problem_id", "problem_id"),
+    )
+
+    ticket_id: Mapped[UUID | None] = mapped_column(
+        Uuid, ForeignKey("tickets.id"), nullable=True
+    )
+    problem_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    root_cause_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("root_causes.id"), nullable=False, index=True
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    timeline: Mapped[str | None] = mapped_column(Text)
+    corrective_actions: Mapped[str | None] = mapped_column(String(4000))
+    preventive_actions: Mapped[str | None] = mapped_column(String(4000))
+    status: Mapped[str] = mapped_column(String(20), default="DRAFT", nullable=False)
+
+    prepared_by_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("users.id"), nullable=False, index=True
+    )
+    approved_by_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("users.id"))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    ticket: Mapped[Ticket | None] = relationship()
+    root_cause: Mapped[RootCause] = relationship(back_populates="rca_reports")
+    prepared_by: Mapped[User] = relationship(foreign_keys=[prepared_by_id])
+    approved_by: Mapped[User | None] = relationship(foreign_keys=[approved_by_id])
