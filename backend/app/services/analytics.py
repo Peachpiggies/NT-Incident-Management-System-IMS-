@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
+import csv
 from collections import defaultdict
+from collections.abc import Iterable
 from datetime import date, datetime, time, timedelta, timezone
 from io import StringIO
-import csv
-from typing import Iterable
 
 from fastapi import HTTPException, status
-from sqlalchemy import case, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
