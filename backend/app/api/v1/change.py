@@ -53,9 +53,18 @@ async def _change(db: AsyncSession, change_id: UUID) -> ChangeRequest:
 async def list_changes(
     _current_user: Annotated[User, Depends(require_permission("change.read"))],
     db: Annotated[AsyncSession, Depends(get_db)],
-    status_filter: ChangeStatus | None = Query(default=None, alias="status"),  # noqa: B008
-    change_type: ChangeType | None = None,
-    risk_level: str | None = Query(default=None),
+    status_filter: Annotated[
+        ChangeStatus | None,
+        Query(alias="status"),
+    ] = None,
+    change_type: Annotated[
+        ChangeType | None,
+        Query(),
+    ] = None,
+    risk_level: Annotated[
+        str | None,
+        Query(),
+    ] = None,
     requested_by_id: UUID | None = None,
     problem_id: UUID | None = None,
     page: int = Query(default=1, ge=1),

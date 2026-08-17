@@ -35,11 +35,17 @@ from app.schemas.comment import (
     CommentUpdate,
 )
 from app.schemas.dashboard import (
+    AnalyticsMetricResponse,
+    ChangeReportResponse,
     ChartDataPoint,
     DashboardOverviewResponse,
+    DashboardScope,
     DashboardSummaryResponse,
     DepartmentBreakdown,
+    MDDRReportResponse,
     RecentActivityItem,
+    ReportResponse,
+    SLAReportResponse,
     TimeSeriesPoint,
 )
 from app.schemas.notification import (
@@ -85,6 +91,12 @@ __all__ = [
     "CommentUpdate",
 
     # dashboard
+    "AnalyticsMetricResponse",
+    "ChangeReportResponse",
+    "DashboardScope",
+    "MDDRReportResponse",
+    "ReportResponse",
+    "SLAReportResponse",
     "ChartDataPoint",
     "DashboardOverviewResponse",
     "DashboardSummaryResponse",

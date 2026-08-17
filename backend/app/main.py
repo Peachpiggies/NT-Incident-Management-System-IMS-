@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.v1.analytics import router as analytics_router
 from app.api.v1.attachments import router as attachments_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.categories import router as categories_router
@@ -119,6 +120,10 @@ session endpoints and are never returned by session-listing APIs.
             "description": "Configuration of allowed ticket-status transitions.",
         },
         {
+            "name": "Dashboard & Analytics",
+            "description": "Executive, manager, helpdesk, and customer dashboards, operational metrics, reports, and CSV exports.",
+        },
+        {
             "name": "SLA",
             "description": "SLA policy configuration, live timers, pause/resume, and timer evaluation.",
         },
@@ -149,6 +154,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(auth_router, prefix="/api/v1/auth")
+app.include_router(analytics_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
 app.include_router(categories_router, prefix="/api/v1")
 app.include_router(change_router, prefix="/api/v1")
