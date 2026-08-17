@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -20,25 +20,37 @@ from sqlalchemy.orm import selectinload
 
 from app.core.change_management import (
     Approval as DomainApproval,
+)
+from app.core.change_management import (
     ApprovalDecision,
     ApprovalPolicy,
-    ChangeRequest as DomainChangeRequest,
     ChangeStatus,
     ChangeType,
-    Implementation as DomainImplementation,
-    RiskAssessment as DomainRiskAssessment,
     RiskLevel,
+)
+from app.core.change_management import (
+    ChangeRequest as DomainChangeRequest,
+)
+from app.core.change_management import (
+    Implementation as DomainImplementation,
+)
+from app.core.change_management import (
+    RiskAssessment as DomainRiskAssessment,
+)
+from app.core.change_management import (
     Rollback as DomainRollback,
+)
+from app.core.change_management import (
     ValidationResult as DomainValidationResult,
 )
 from app.db.models import (
     ChangeApproval,
     ChangeImplementation,
+    ChangeNumberSequence,
     ChangeRequest,
     ChangeRiskAssessment,
     ChangeRollback,
     ChangeValidation,
-    ChangeNumberSequence,
     Problem,
     TicketPriority,
     TicketService,

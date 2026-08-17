@@ -5,16 +5,18 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.api.v1.dependencies import get_db
 from app.core.change_management import (
     ApprovalDecision,
     ApprovalPolicy,
-    ChangeRequest as DomainChangeRequest,
     ChangeStatus,
     ChangeType,
     RiskLevel,
+)
+from app.core.change_management import (
+    ChangeRequest as DomainChangeRequest,
 )
 from app.core.security import hash_password
 from app.db.models import (

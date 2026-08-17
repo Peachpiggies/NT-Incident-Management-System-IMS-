@@ -19,21 +19,20 @@ from app.api.v1.dependencies import require_permission
 from app.db.models import ChangeApproval, ChangeRequest, User
 from app.db.session import get_db
 from app.schemas.change_management import (
-    ApprovalDecision,
     ChangeApprovalCreate,
     ChangeApprovalListResponse,
     ChangeApprovalResponse,
     ChangeImplementationCreate,
-    ChangeRequestCreate,
-    ChangeRequestUpdate,
     ChangeImplementationUpdate,
+    ChangeRequestCreate,
     ChangeRequestListResponse,
     ChangeRequestResponse,
     ChangeRequestSummary,
+    ChangeRequestUpdate,
     ChangeRollbackCreate,
     ChangeStatus,
-    ChangeValidationCreate,
     ChangeType,
+    ChangeValidationCreate,
     RiskAssessmentCreate,
     RiskAssessmentResponse,
 )
@@ -54,7 +53,7 @@ async def _change(db: AsyncSession, change_id: UUID) -> ChangeRequest:
 async def list_changes(
     _current_user: Annotated[User, Depends(require_permission("change.read"))],
     db: Annotated[AsyncSession, Depends(get_db)],
-    status_filter: ChangeStatus | None = Query(default=None, alias="status"),
+    status_filter: ChangeStatus | None = Query(default=None, alias="status"),  # noqa: B008
     change_type: ChangeType | None = None,
     risk_level: str | None = Query(default=None),
     requested_by_id: UUID | None = None,
