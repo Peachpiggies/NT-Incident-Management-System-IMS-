@@ -14,54 +14,28 @@ the business workflow without a deployment.
 
 from __future__ import annotations
 
-
-
 from datetime import date, datetime
-
 from uuid import UUID, uuid4
 
-
-
 from sqlalchemy import (
-
     JSON,
-
     Boolean,
-
     CheckConstraint,
-
     Date,
-
     DateTime,
-
     ForeignKey,
-
     Index,
-
     Integer,
-
     Numeric,
-
     String,
-
     Text,
-
     UniqueConstraint,
-
     func,
-
 )
-
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-
 from sqlalchemy.types import Uuid
 
-
-
 from app.db.session import Base
-
-
-
 
 
 class BaseModel(Base):
@@ -1260,7 +1234,6 @@ class RefreshToken(BaseModel):
 
 # SLA engine
 
-#
 
 # Backs app/services/sla_engine.py, which was written against exactly these
 
@@ -1276,7 +1249,6 @@ class RefreshToken(BaseModel):
 
 # + the TicketSlaMetricType/TicketSlaTimerStatus enums in app/schemas/ticket.py.
 
-#
 
 # NOTE: app/schemas/sla_engine.py is a stale, disconnected draft with
 
@@ -2302,7 +2274,6 @@ class NotificationHistory(BaseModel):
 
 # ticket_id/problem_id anchor already declared on app.schemas.rca.
 
-#
 
 # `problem_id` columns below carry a real FK to `problems.id`, added by
 
