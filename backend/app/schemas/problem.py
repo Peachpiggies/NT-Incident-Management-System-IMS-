@@ -9,7 +9,7 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.common import CategorySummary, PrioritySummary, UserSummary
 
@@ -61,6 +61,10 @@ class ProblemUpdate(BaseModel):
 class ProblemStatusUpdate(BaseModel):
     status: ProblemStatus
     remark: str | None = Field(None, max_length=2000)
+
+
+class ProblemAssign(BaseModel):
+    owner_id: UUID
 
 
 class ProblemSummary(BaseModel):
@@ -204,6 +208,22 @@ class WorkaroundResponse(WorkaroundBase):
     created_at: datetime
     updated_at: datetime
 
+    @model_validator(mode="before")
+    @classmethod
+    def _map_creator(cls, data):
+        """The ORM `Workaround` inherits the generic audit `created_by`
+        column (a plain UUID FK) from BaseModel, but this schema wants the
+        *user* who authored the workaround. `Workaround.creator` is the
+        relationship for that same FK -- swap it in here so `created_by`
+        validates against UserSummary instead of colliding with the raw
+        audit UUID."""
+        if isinstance(data, dict):
+            return data
+        return {
+            field: getattr(data, "creator" if field == "created_by" else field)
+            for field in cls.model_fields
+        }
+
 
 class WorkaroundListResponse(BaseModel):
     items: list[WorkaroundResponse]
@@ -230,8 +250,11 @@ class PermanentFixCreate(PermanentFixBase):
 class PermanentFixUpdate(BaseModel):
     description: str | None = Field(None, min_length=5, max_length=4000)
     change_request_id: UUID | None = None
-    verified_by_id: UUID | None = None
-    verified_at: datetime | None = None
+    implemented_at: datetime | None = None
+
+
+class PermanentFixVerify(BaseModel):
+    comment: str | None = Field(None, max_length=1000)
 
 
 class PermanentFixResponse(BaseModel):
@@ -245,3 +268,9 @@ class PermanentFixResponse(BaseModel):
     verified_by: UserSummary | None = None
     verified_at: datetime | None = None
     created_at: datetime
+    updated_at: datetime
+
+
+class PermanentFixListResponse(BaseModel):
+    items: list[PermanentFixResponse]
+    total: int
