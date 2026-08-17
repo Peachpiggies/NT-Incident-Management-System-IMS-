@@ -4,6 +4,18 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
+# ---------- Dev (hot reload) ----------
+# Targeted explicitly via `build.target: dev` in docker-compose.yml.
+# Source and node_modules are expected to be bind-mounted over this at
+# runtime; what's copied here just lets the image run standalone too.
+FROM node:20-alpine AS dev
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+ENV NODE_ENV=development
+EXPOSE 3000
+CMD ["npm", "run", "dev", "--", "--hostname", "0.0.0.0", "--port", "3000"]
+
 # ---------- Build ----------
 FROM node:20-alpine AS builder
 WORKDIR /app
@@ -14,7 +26,7 @@ ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 RUN npm run build
 
-# ---------- Runtime ----------
+# ---------- Runtime (production, default target) ----------
 FROM node:20-alpine AS runner
 WORKDIR /app
 
