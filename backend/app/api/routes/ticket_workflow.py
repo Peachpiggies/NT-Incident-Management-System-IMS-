@@ -11,8 +11,8 @@ module composes cleanly inside a single request-scoped transaction.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timezone
-from typing import Callable
 from uuid import UUID
 
 from sqlalchemy import select
@@ -299,11 +299,14 @@ def transition_status(
         raise InvalidStatusTransition(
             f"No active transition configured from {ticket.status_id} to {to_status_id}"
         )
-    if edge.required_permission and has_permission is not None:
-        if not has_permission(edge.required_permission):
-            raise MissingTransitionPermission(
-                f"Missing required permission: {edge.required_permission}"
-            )
+    if (
+        edge.required_permission
+        and has_permission is not None
+        and not has_permission(edge.required_permission)
+    ):
+        raise MissingTransitionPermission(
+            f"Missing required permission: {edge.required_permission}"
+        )
 
     _record_history(
         session,

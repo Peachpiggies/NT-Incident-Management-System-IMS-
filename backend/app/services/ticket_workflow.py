@@ -11,8 +11,8 @@ module composes cleanly inside a single request-scoped transaction.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timezone
-from typing import Callable
 from uuid import UUID
 
 from sqlalchemy import select
@@ -301,13 +301,31 @@ def transition_status(
     remark: str | None = None,
     has_permission: Callable[[str], bool] | None = None,
     is_closed_status: bool = False,
+    on_status_changed: Callable[[Session, Ticket, UUID], None] | None = None,
+    action: str = "STATUS_CHANGE",
 ) -> Ticket:
     """Move a ticket to a new status, enforcing the configured transition graph.
+
+    `action` is the `TicketHistory.action` recorded for this transition.
+    Callers that represent a specific business action (e.g. `ticket.assign`,
+    `ticket.resolve`) should pass that action code through here so the
+    history entry reflects it instead of the generic `STATUS_CHANGE` default.
 
     `has_permission`, if given, is called with the transition's
     `required_permission` code (when set) and must return True/False. Pass it
     from wherever your auth/permission checking already lives -- this module
     intentionally has no opinion on how permissions are resolved.
+
+    `on_status_changed`, if given, is called as `on_status_changed(session,
+    ticket, to_status_id)` after `ticket.status_id` is updated but before this
+    function's own `session.flush()`. This is the hook point for anything
+    that needs to react to the new status within the same transaction --
+    e.g. `functools.partial(sla_engine.apply_status_pause_rules,
+    new_status_id=to_status_id, actor_id=performed_by)` to pause/resume SLA
+    timers per SLAPauseRule. Same reasoning as `has_permission`/
+    `resolve_due_at` elsewhere in this codebase: this module doesn't import
+    sla_engine directly (see module docstring on self-containment), so the
+    caller wires the two together.
     """
     edge = session.execute(
         select(TicketStatusTransition).where(
@@ -322,16 +340,19 @@ def transition_status(
         raise InvalidStatusTransition(
             f"No active transition configured from {ticket.status_id} to {to_status_id}"
         )
-    if edge.required_permission and has_permission is not None:
-        if not has_permission(edge.required_permission):
-            raise MissingTransitionPermission(
-                f"Missing required permission: {edge.required_permission}"
-            )
+    if (
+        edge.required_permission
+        and has_permission is not None
+        and not has_permission(edge.required_permission)
+    ):
+        raise MissingTransitionPermission(
+            f"Missing required permission: {edge.required_permission}"
+        )
 
     _record_history(
         session,
         ticket,
-        action="STATUS_CHANGE",
+        action=action,
         field="status_id",
         old_value=str(ticket.status_id),
         new_value=str(to_status_id),
@@ -344,6 +365,10 @@ def transition_status(
         ticket.closed_at = ticket.closed_at or _utcnow()
 
     _touch(ticket, actor_id=performed_by)
+
+    if on_status_changed is not None:
+        on_status_changed(session, ticket, to_status_id)
+
     session.flush()
     return ticket
 

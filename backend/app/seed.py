@@ -7,6 +7,10 @@ from sqlalchemy import select
 from app.core.security import hash_password
 from app.db.models import (
     Department,
+    KBArticleStatus,
+    KBArticleStatusTransition,
+    KBCategory,
+    NotificationRule,
     Permission,
     Role,
     RolePermission,
@@ -57,6 +61,43 @@ PERMISSIONS = [
     ("role", "manage"),
     ("department", "manage"),
     ("configuration", "manage"),
+    ("kb", "create"),
+    ("kb", "update"),
+    ("kb", "delete"),
+    ("kb", "submit"),
+    ("kb", "review"),
+    ("kb", "archive"),
+    ("kb", "restore"),
+    ("kb", "link_incident"),
+    ("notification", "manage"),
+    ("rca", "create"),
+    ("rca", "update"),
+    ("rca", "delete"),
+    ("rca", "submit"),
+    ("rca", "approve"),
+    ("problem", "create"),
+    ("problem", "update"),
+    ("problem", "delete"),
+    ("problem", "investigate"),
+    ("problem", "identify_known_error"),
+    ("problem", "resolve"),
+    ("problem", "close"),
+    ("problem", "reopen"),
+    ("problem", "assign"),
+    ("problem", "link_incident"),
+    ("problem", "known_error_manage"),
+    ("problem", "workaround_manage"),
+    ("problem", "permanent_fix_manage"),
+    ("problem", "permanent_fix_verify"),
+    ("change", "read"),
+    ("change", "create"),
+    ("change", "update"),
+    ("change", "assess"),
+    ("change", "approve"),
+    ("change", "implement"),
+    ("change", "validate"),
+    ("change", "rollback"),
+    ("change", "close"),
 ]
 
 ROLE_PERMISSION_CODES = {
@@ -80,6 +121,10 @@ ROLE_PERMISSION_CODES = {
         "ticket.resolve",
         "ticket.close",
         "ticket.reopen",
+        "kb.create",
+        "kb.update",
+        "kb.submit",
+        "kb.link_incident",
     },
     "helpdesk_t2": {
         "ticket.read_all",
@@ -93,6 +138,28 @@ ROLE_PERMISSION_CODES = {
         "ticket.resolve",
         "ticket.close",
         "ticket.reopen",
+        "kb.create",
+        "kb.update",
+        "kb.submit",
+        "kb.link_incident",
+        "rca.create",
+        "rca.update",
+        "rca.submit",
+        "problem.create",
+        "problem.update",
+        "problem.investigate",
+        "problem.identify_known_error",
+        "problem.resolve",
+        "problem.link_incident",
+        "problem.known_error_manage",
+        "problem.workaround_manage",
+        "problem.permanent_fix_manage",
+        "change.read",
+        "change.create",
+        "change.update",
+        "change.assess",
+        "change.implement",
+        "change.validate",
     },
     "manager": {
         "ticket.read_all",
@@ -105,6 +172,23 @@ ROLE_PERMISSION_CODES = {
         "dashboard.view",
         "report.view",
         "user.manage",
+        "kb.review",
+        "kb.archive",
+        "kb.restore",
+        "kb.delete",
+        "kb.link_incident",
+        "notification.manage",
+        "rca.approve",
+        "rca.delete",
+        "problem.assign",
+        "problem.close",
+        "problem.reopen",
+        "problem.delete",
+        "problem.permanent_fix_verify",
+        "change.read",
+        "change.approve",
+        "change.rollback",
+        "change.close",
     },
     "admin": {f"{module}.{action}" for module, action in PERMISSIONS},
 }
@@ -338,6 +422,88 @@ async def seed_database() -> None:
                         from_status_id=statuses[from_code].id,
                         to_status_id=statuses[to_code].id,
                         required_permission=required_permission,
+                        is_active=True,
+                    )
+                )
+
+        kb_statuses = {}
+        for code, name, color, sort_order in [
+            ("DRAFT", "Draft", "#6B7280", 10),
+            ("IN_REVIEW", "In Review", "#D97706", 20),
+            ("PUBLISHED", "Published", "#16A34A", 30),
+            ("ARCHIVED", "Archived", "#374151", 40),
+        ]:
+            kb_statuses[code] = await _get_or_create(
+                session,
+                KBArticleStatus,
+                code,
+                name=name,
+                color=color,
+                sort_order=sort_order,
+                is_active=True,
+            )
+
+        for from_code, to_code, required_permission in [
+            ("DRAFT", "IN_REVIEW", "kb.submit"),
+            ("IN_REVIEW", "PUBLISHED", "kb.review"),
+            ("IN_REVIEW", "DRAFT", "kb.review"),
+            ("PUBLISHED", "ARCHIVED", "kb.archive"),
+            ("ARCHIVED", "DRAFT", "kb.restore"),
+        ]:
+            exists = await session.scalar(
+                select(KBArticleStatusTransition).where(
+                    KBArticleStatusTransition.from_status_id == kb_statuses[from_code].id,
+                    KBArticleStatusTransition.to_status_id == kb_statuses[to_code].id,
+                )
+            )
+            if exists is None:
+                session.add(
+                    KBArticleStatusTransition(
+                        from_status_id=kb_statuses[from_code].id,
+                        to_status_id=kb_statuses[to_code].id,
+                        required_permission=required_permission,
+                        is_active=True,
+                    )
+                )
+
+        for name, sort_order in [
+            ("Network", 10),
+            ("Email", 20),
+            ("Hardware", 30),
+            ("Application", 40),
+            ("Account & Access", 50),
+            ("General", 60),
+        ]:
+            existing = await session.scalar(
+                select(KBCategory).where(
+                    KBCategory.name == name, KBCategory.parent_id.is_(None)
+                )
+            )
+            if existing is None:
+                session.add(
+                    KBCategory(name=name, sort_order=sort_order, is_active=True)
+                )
+
+        for name, event_type, channels in [
+            # "in_app" is deliberately excluded here: the ticket endpoints
+            # that fire these events (assign/resolve, see app/api/v1/tickets.py)
+            # already write an in-app Notification directly. These rules
+            # only add the extra channels on top of that.
+            ("Ticket assigned", "ticket.assigned", ["email"]),
+            ("Ticket resolved", "ticket.resolved", ["email"]),
+            ("SLA breach warning", "sla.warning", ["in_app", "email", "sms"]),
+        ]:
+            existing_rule = await session.scalar(
+                select(NotificationRule).where(NotificationRule.event_type == event_type)
+            )
+            if existing_rule is None:
+                session.add(
+                    NotificationRule(
+                        name=name,
+                        event_type=event_type,
+                        channels=channels,
+                        recipient_role_ids=[],
+                        recipient_user_ids=[],
                         is_active=True,
                     )
                 )

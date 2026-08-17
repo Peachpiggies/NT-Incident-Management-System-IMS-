@@ -11,9 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import require_permission
 from app.db.models import ActivityLog, Department, Role, RolePermission, User, UserRole
 from app.db.session import get_db
-
 from app.schemas.references.department import DepartmentRequest, DepartmentResponse
-from app.schemas.references.role import RoleResponse, RoleRequest, UserRoleResponse
+from app.schemas.references.role import RoleRequest, RoleResponse, UserRoleResponse
 
 router = APIRouter(tags=["Organization"])
 

@@ -4,6 +4,7 @@ Workflow state is configuration data (`ticket_statuses`), so this module never
 uses the retired Python enums or integer ticket/customer identifiers.
 """
 
+import logging
 from datetime import datetime, timezone
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
@@ -16,8 +17,6 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.schemas.ticket import TicketCreate, TicketResponse, TicketUpdate
-
 from app.api.v1.dependencies import (
     get_current_user,
     require_permission,
@@ -25,7 +24,6 @@ from app.api.v1.dependencies import (
     ticket_read_scope,
     user_has_permission,
 )
-
 from app.db.models import (
     Department,
     Notification,
@@ -38,13 +36,16 @@ from app.db.models import (
     TicketNumberSequence,
     TicketPriority,
     TicketService,
+    TicketSlaTimer,
     TicketStatus,
     TicketSubcategory,
     User,
 )
-
 from app.db.session import get_db
+from app.schemas.ticket import TicketCreate, TicketResponse, TicketUpdate
+from app.services import notification_engine
 from app.services.assignment import AssignmentService
+from app.services.async_sla import mark_timer_met, match_and_start_sla
 from app.services.escalation import TicketEscalationService
 from app.services.incident_tracking import IncidentTrackingService
 from app.services.workflow import TicketWorkflowService, commit_ticket_transaction
@@ -443,6 +444,36 @@ def _notification(
     )
 
 
+async def _dispatch_event(
+    db: AsyncSession,
+    event_type: str,
+    *,
+    title: str,
+    message: str,
+    extra_user_ids: list[UUID],
+) -> None:
+    """Fire the Notification Engine's rule-matched channels (email/SMS/etc)
+    for a ticket lifecycle event. Best-effort: a delivery problem here must
+    never fail the ticket action itself, so exceptions are logged and
+    swallowed. In-app notifications for these same events are written
+    directly by the calling endpoint (see `_notification` above) rather
+    than through this path -- see the "Ticket assigned"/"Ticket resolved"
+    seed rules' comment for why.
+    """
+    try:
+        await notification_engine.dispatch(
+            db,
+            event_type,
+            title=title,
+            message=message,
+            extra_user_ids=extra_user_ids,
+        )
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "Notification dispatch failed event_type=%s", event_type
+        )
+
+
 async def _validate_mentioned_users(
     db: AsyncSession, mentioned_user_ids: list[UUID]
 ) -> list[UUID]:
@@ -570,6 +601,10 @@ async def create_ticket(
             remark="Ticket created",
         )
     )
+    # SLA policy matching is part of the real ticket-creation transaction.
+    # A missing policy is allowed; configured policies immediately create the
+    # RESPONSE/RESOLUTION timers through the existing SLA engine.
+    await match_and_start_sla(db, ticket, actor_id=current_user.id)
     await commit_ticket_transaction(db)
     await _refresh_ticket_detail(db, ticket)
     return ticket
@@ -857,6 +892,20 @@ async def add_ticket_comment(
             ticket, current_user.id, "ticket.comment", remark="Public comment added"
         )
     )
+    # A public agent response completes the RESPONSE clock. Customer comments
+    # do not stop the response SLA because they are not a service response.
+    if current_user.id != ticket.requester_id:
+        response_timer = await db.scalar(
+            select(TicketSlaTimer).where(
+                TicketSlaTimer.ticket_id == ticket.id,
+                TicketSlaTimer.metric_type == "RESPONSE",
+                TicketSlaTimer.is_deleted.is_(False),
+            )
+        )
+        if response_timer and response_timer.status in {"RUNNING", "PAUSED"}:
+            await mark_timer_met(
+                db, response_timer, ticket, actor_id=current_user.id
+            )
     await commit_ticket_transaction(db)
     await db.refresh(comment)
     return await _comment_response(db, comment)
@@ -1082,6 +1131,13 @@ async def assign_ticket(
         )
     )
     await commit_ticket_transaction(db)
+    await _dispatch_event(
+        db,
+        "ticket.assigned",
+        title="Ticket assigned",
+        message=f"{ticket.ticket_no} was assigned to you.",
+        extra_user_ids=[assignee.id],
+    )
     await _refresh_ticket_detail(db, ticket)
     return ticket
 
@@ -1364,6 +1420,13 @@ async def resolve_ticket(
         )
     )
     await commit_ticket_transaction(db)
+    await _dispatch_event(
+        db,
+        "ticket.resolved",
+        title="Ticket resolved",
+        message=f"{ticket.ticket_no} has been resolved.",
+        extra_user_ids=[ticket.requester_id],
+    )
     await _refresh_ticket_detail(db, ticket)
     return ticket
 

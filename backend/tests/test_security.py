@@ -1,6 +1,8 @@
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
+
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -8,7 +10,6 @@ from app.core.security import (
     decode_refresh_token,
     hash_refresh_token,
 )
-from fastapi import HTTPException
 
 
 def test_access_and_refresh_tokens_have_distinct_types() -> None:

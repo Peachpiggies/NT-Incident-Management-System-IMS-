@@ -19,7 +19,6 @@ from app.core.validation import normalize_email, validate_password, validate_pho
 from app.schemas.references.department import DepartmentSummary
 from app.schemas.references.role import RoleSummary
 
-
 # ==========================================================
 # Base
 # ==========================================================

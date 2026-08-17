@@ -10,7 +10,7 @@ resolves the JWT/refresh-token flow implied by `RefreshToken`/`LoginHistory`.
 
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 from uuid import UUID
 
 from sqlalchemy import select
