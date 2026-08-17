@@ -65,11 +65,14 @@ class ChangeRequestBase(BaseModel):
     problem_id: UUID | None = Field(None, description="Problem this change resolves, if any")
     planned_start: datetime
     planned_end: datetime
+    emergency_justification: str | None = Field(None, max_length=4000)
 
     @model_validator(mode="after")
     def _check_window(self) -> "ChangeRequestBase":
         if self.planned_end <= self.planned_start:
             raise ValueError("planned_end must be after planned_start")
+        if self.change_type == ChangeType.EMERGENCY and not self.emergency_justification:
+            raise ValueError("emergency_justification is required for EMERGENCY changes")
         return self
 
 
@@ -83,6 +86,8 @@ class ChangeRequestUpdate(BaseModel):
     change_type: ChangeType | None = None
     priority_id: UUID | None = None
     service_id: UUID | None = None
+    problem_id: UUID | None = None
+    emergency_justification: str | None = Field(None, max_length=4000)
     planned_start: datetime | None = None
     planned_end: datetime | None = None
 
@@ -113,6 +118,7 @@ class ChangeRequestResponse(BaseModel):
 
     service_id: UUID | None = None
     problem_id: UUID | None = None
+    emergency_justification: str | None = None
 
     requested_by: UserSummary
     planned_start: datetime
@@ -177,6 +183,7 @@ class ChangeApprovalCreate(BaseModel):
     change_request_id: UUID
     decision: ApprovalDecision
     comments: str | None = Field(None, max_length=2000)
+    emergency_justification: str | None = Field(None, max_length=4000)
 
     @model_validator(mode="after")
     def _check_decision(self) -> "ChangeApprovalCreate":
@@ -215,10 +222,8 @@ class ChangeImplementationCreate(BaseModel):
 
 
 class ChangeImplementationUpdate(BaseModel):
-    """Mark implementation progress: start it, complete it, or add notes."""
+    """Notes supplied when the domain-controlled implementation is completed."""
 
-    started_at: datetime | None = None
-    completed_at: datetime | None = None
     notes: str | None = Field(None, max_length=4000)
 
 

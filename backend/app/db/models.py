@@ -2681,6 +2681,199 @@ class KnownError(BaseModel):
     workaround: Mapped[Workaround | None] = relationship()
 
 
+# --------------------------------------------------------------------------
+# Change Management
+# --------------------------------------------------------------------------
+
+
+class ChangeNumberSequence(Base):
+    """Daily sequence used to allocate collision-free CHG-YYYYMMDD-xxxxxx numbers."""
+
+    __tablename__ = "change_number_sequences"
+
+    business_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    last_value: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class ChangeRequest(BaseModel):
+    """Persisted Change Management aggregate root."""
+
+    __tablename__ = "change_requests"
+    __table_args__ = (
+        UniqueConstraint("change_no", name="uq_change_requests_change_no"),
+        CheckConstraint(
+            "change_type IN ('STANDARD', 'NORMAL', 'EMERGENCY')",
+            name="ck_change_requests_type",
+        ),
+        CheckConstraint(
+            "status IN ('DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED', "
+            "'SCHEDULED', 'IN_PROGRESS', 'IMPLEMENTED', 'VALIDATED', "
+            "'FAILED', 'ROLLED_BACK', 'CLOSED')",
+            name="ck_change_requests_status",
+        ),
+        Index("ix_change_requests_status_created", "status", "created_at"),
+        Index("ix_change_requests_requested_by", "requested_by_id"),
+        Index("ix_change_requests_problem_id", "problem_id"),
+        Index("ix_change_requests_service_id", "service_id"),
+    )
+
+    change_no: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    change_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="DRAFT")
+    priority_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("ticket_priorities.id"), nullable=False, index=True
+    )
+    service_id: Mapped[UUID | None] = mapped_column(
+        Uuid, ForeignKey("ticket_services.id"), nullable=True
+    )
+    problem_id: Mapped[UUID | None] = mapped_column(
+        Uuid, ForeignKey("problems.id"), nullable=True
+    )
+    requested_by_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("users.id"), nullable=False, index=True
+    )
+    risk_level: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    emergency_justification: Mapped[str | None] = mapped_column(Text)
+    planned_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    planned_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    priority: Mapped[TicketPriority] = relationship()
+    service: Mapped[TicketService | None] = relationship()
+    problem: Mapped[Problem | None] = relationship()
+    requested_by: Mapped[User] = relationship(foreign_keys=[requested_by_id])
+    risk_assessment: Mapped[ChangeRiskAssessment | None] = relationship(
+        back_populates="change_request", uselist=False, cascade="all, delete-orphan"
+    )
+    approvals: Mapped[list[ChangeApproval]] = relationship(
+        back_populates="change_request", cascade="all, delete-orphan"
+    )
+    implementation: Mapped[ChangeImplementation | None] = relationship(
+        back_populates="change_request", uselist=False, cascade="all, delete-orphan"
+    )
+    validation: Mapped[ChangeValidation | None] = relationship(
+        back_populates="change_request", uselist=False, cascade="all, delete-orphan"
+    )
+    rollback: Mapped[ChangeRollback | None] = relationship(
+        back_populates="change_request", uselist=False, cascade="all, delete-orphan"
+    )
+
+
+class ChangeRiskAssessment(BaseModel):
+    __tablename__ = "change_risk_assessments"
+    __table_args__ = (
+        UniqueConstraint("change_request_id", name="uq_change_risk_assessments_change"),
+        CheckConstraint(
+            "risk_level IN ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL')",
+            name="ck_change_risk_assessments_level",
+        ),
+    )
+
+    change_request_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("change_requests.id"), nullable=False, index=True
+    )
+    risk_level: Mapped[str] = mapped_column(String(20), nullable=False)
+    impact_description: Mapped[str] = mapped_column(Text, nullable=False)
+    likelihood: Mapped[str] = mapped_column(String(100), nullable=False)
+    mitigation_plan: Mapped[str | None] = mapped_column(Text)
+    assessed_by_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("users.id"), nullable=False
+    )
+    assessed_by: Mapped[User] = relationship(foreign_keys=[assessed_by_id])
+    change_request: Mapped[ChangeRequest] = relationship(back_populates="risk_assessment")
+
+
+class ChangeApproval(BaseModel):
+    __tablename__ = "change_approvals"
+    __table_args__ = (
+        UniqueConstraint(
+            "change_request_id", "approver_id",
+            name="uq_change_approvals_change_approver",
+        ),
+        CheckConstraint(
+            "decision IN ('PENDING', 'APPROVED', 'REJECTED')",
+            name="ck_change_approvals_decision",
+        ),
+    )
+
+    change_request_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("change_requests.id"), nullable=False, index=True
+    )
+    approver_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("users.id"), nullable=False, index=True
+    )
+    decision: Mapped[str] = mapped_column(String(20), nullable=False)
+    comments: Mapped[str | None] = mapped_column(Text)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approver: Mapped[User] = relationship(foreign_keys=[approver_id])
+    change_request: Mapped[ChangeRequest] = relationship(back_populates="approvals")
+
+
+class ChangeImplementation(BaseModel):
+    __tablename__ = "change_implementations"
+    __table_args__ = (
+        UniqueConstraint(
+            "change_request_id", name="uq_change_implementations_change"
+        ),
+    )
+
+    change_request_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("change_requests.id"), nullable=False, index=True
+    )
+    implementation_plan: Mapped[str] = mapped_column(Text, nullable=False)
+    implemented_by_id: Mapped[UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id")
+    )
+    scheduled_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scheduled_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    notes: Mapped[str | None] = mapped_column(Text)
+    implemented_by: Mapped[User | None] = relationship(foreign_keys=[implemented_by_id])
+    change_request: Mapped[ChangeRequest] = relationship(back_populates="implementation")
+
+
+class ChangeValidation(BaseModel):
+    __tablename__ = "change_validations"
+    __table_args__ = (
+        UniqueConstraint("change_request_id", name="uq_change_validations_change"),
+    )
+
+    change_request_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("change_requests.id"), nullable=False, index=True
+    )
+    validated_by_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("users.id"), nullable=False
+    )
+    validation_result: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
+    validated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    validated_by: Mapped[User] = relationship(foreign_keys=[validated_by_id])
+    change_request: Mapped[ChangeRequest] = relationship(back_populates="validation")
+
+
+class ChangeRollback(BaseModel):
+    __tablename__ = "change_rollbacks"
+    __table_args__ = (
+        UniqueConstraint("change_request_id", name="uq_change_rollbacks_change"),
+    )
+
+    change_request_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("change_requests.id"), nullable=False, index=True
+    )
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    rollback_plan: Mapped[str] = mapped_column(Text, nullable=False)
+    initiated_by_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("users.id"), nullable=False
+    )
+    rolled_back_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    initiated_by: Mapped[User] = relationship(foreign_keys=[initiated_by_id])
+    change_request: Mapped[ChangeRequest] = relationship(back_populates="rollback")
+
+
 class PermanentFix(BaseModel):
     """The change that permanently resolves a Problem, closing out its
     Known Error entry. `change_request_id` is a plain UUID with no FK yet:
@@ -2695,7 +2888,7 @@ class PermanentFix(BaseModel):
     problem_id: Mapped[UUID] = mapped_column(
         Uuid, ForeignKey("problems.id"), nullable=False
     )
-    change_request_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    change_request_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("change_requests.id"), nullable=True, index=True)
     description: Mapped[str] = mapped_column(String(4000), nullable=False)
     implemented_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     verified_by_id: Mapped[UUID | None] = mapped_column(

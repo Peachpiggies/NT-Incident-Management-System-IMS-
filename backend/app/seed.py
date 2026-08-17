@@ -89,6 +89,15 @@ PERMISSIONS = [
     ("problem", "workaround_manage"),
     ("problem", "permanent_fix_manage"),
     ("problem", "permanent_fix_verify"),
+    ("change", "read"),
+    ("change", "create"),
+    ("change", "update"),
+    ("change", "assess"),
+    ("change", "approve"),
+    ("change", "implement"),
+    ("change", "validate"),
+    ("change", "rollback"),
+    ("change", "close"),
 ]
 
 ROLE_PERMISSION_CODES = {
@@ -145,6 +154,12 @@ ROLE_PERMISSION_CODES = {
         "problem.known_error_manage",
         "problem.workaround_manage",
         "problem.permanent_fix_manage",
+        "change.read",
+        "change.create",
+        "change.update",
+        "change.assess",
+        "change.implement",
+        "change.validate",
     },
     "manager": {
         "ticket.read_all",
@@ -170,6 +185,10 @@ ROLE_PERMISSION_CODES = {
         "problem.reopen",
         "problem.delete",
         "problem.permanent_fix_verify",
+        "change.read",
+        "change.approve",
+        "change.rollback",
+        "change.close",
     },
     "admin": {f"{module}.{action}" for module, action in PERMISSIONS},
 }

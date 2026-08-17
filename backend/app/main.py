@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.attachments import router as attachments_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.categories import router as categories_router
+from app.api.v1.change import router as change_router
 from app.api.v1.health import router as health_router
 from app.api.v1.knowledge_base import router as knowledge_base_router
 from app.api.v1.notifications import router as notifications_router
@@ -106,6 +107,10 @@ session endpoints and are never returned by session-listing APIs.
             "description": "UUID tickets, classification, workflow and department/user assignment. List responses are paginated.",
         },
         {
+            "name": "Change Management",
+            "description": "Change requests, risk assessment, approval quorum, implementation, validation, rollback, and closure.",
+        },
+        {
             "name": "Categories",
             "description": "Configurable Category → Subcategory → Service master data for ticket classification.",
         },
@@ -146,6 +151,7 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/api/v1/auth")
 app.include_router(users_router, prefix="/api/v1")
 app.include_router(categories_router, prefix="/api/v1")
+app.include_router(change_router, prefix="/api/v1")
 app.include_router(attachments_router, prefix="/api/v1")
 app.include_router(notifications_router, prefix="/api/v1")
 app.include_router(organization_router, prefix="/api/v1")

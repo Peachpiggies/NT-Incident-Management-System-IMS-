@@ -250,8 +250,11 @@ class ChangeRequest:
         if decision == ApprovalDecision.PENDING:
             raise ValueError("decision must be APPROVED or REJECTED")
 
-        if self.change_type == ChangeType.EMERGENCY and emergency_justification:
-            self.emergency_justification = emergency_justification
+        if self.change_type == ChangeType.EMERGENCY:
+            if emergency_justification:
+                self.emergency_justification = emergency_justification
+            if not self.emergency_justification:
+                raise ValueError("Emergency justification is required for EMERGENCY changes")
 
         approval = Approval(
             approver=approver,
