@@ -191,7 +191,7 @@ async def assess_risk(
     payload: RiskAssessmentCreate,
     current_user: Annotated[User, Depends(require_permission("change.assess"))],
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> object:
+) -> RiskAssessmentResponse:
     if payload.change_request_id != change_id:
         raise HTTPException(status_code=400, detail="change_request_id mismatch")
     change = await _change(db, change_id)
@@ -203,7 +203,7 @@ async def assess_risk(
         likelihood=payload.likelihood,
         mitigation_plan=payload.mitigation_plan,
     )
-    return result.risk_assessment
+    return result
 
 
 @router.post("/changes/{change_id}/approvals", response_model=ChangeRequestResponse)
