@@ -22,16 +22,16 @@ from app.schemas.dashboard import (
 from app.services.analytics import AnalyticsService
 
 router = APIRouter(tags=["Dashboard & Analytics"])
-DateQuery = Annotated[date | None, Query(default=None)]
-LimitQuery = Annotated[int, Query(default=1000, ge=1, le=10000)]
+DateQuery = Annotated[date | None, Query()]
+LimitQuery = Annotated[int, Query(ge=1, le=10000)]
 
 
 @router.get("/dashboards/executive", response_model=DashboardOverviewResponse)
 async def executive_dashboard(
     current_user: Annotated[User, Depends(require_permission("dashboard.view"))],
     db: Annotated[AsyncSession, Depends(get_db)],
-    from_date: DateQuery,
-    to_date: DateQuery,
+    from_date: DateQuery = None,
+    to_date: DateQuery = None,
 ) -> DashboardOverviewResponse:
     return await AnalyticsService(db).overview(current_user, DashboardScope.EXECUTIVE, from_date, to_date)
 
@@ -40,8 +40,8 @@ async def executive_dashboard(
 async def manager_dashboard(
     current_user: Annotated[User, Depends(require_permission("dashboard.view"))],
     db: Annotated[AsyncSession, Depends(get_db)],
-    from_date: DateQuery,
-    to_date: DateQuery,
+    from_date: DateQuery = None,
+    to_date: DateQuery = None,
 ) -> DashboardOverviewResponse:
     return await AnalyticsService(db).overview(current_user, DashboardScope.MANAGER, from_date, to_date)
 
@@ -50,8 +50,8 @@ async def manager_dashboard(
 async def helpdesk_dashboard(
     current_user: Annotated[User, Depends(require_permission("dashboard.view"))],
     db: Annotated[AsyncSession, Depends(get_db)],
-    from_date: DateQuery,
-    to_date: DateQuery,
+    from_date: DateQuery = None,
+    to_date: DateQuery = None,
 ) -> DashboardOverviewResponse:
     return await AnalyticsService(db).overview(current_user, DashboardScope.HELPDESK, from_date, to_date)
 
@@ -60,8 +60,8 @@ async def helpdesk_dashboard(
 async def customer_dashboard(
     current_user: Annotated[User, Depends(require_permission("dashboard.view"))],
     db: Annotated[AsyncSession, Depends(get_db)],
-    from_date: DateQuery,
-    to_date: DateQuery,
+    from_date: DateQuery = None,
+    to_date: DateQuery = None,
 ) -> DashboardOverviewResponse:
     return await AnalyticsService(db).overview(current_user, DashboardScope.CUSTOMER, from_date, to_date)
 
@@ -70,9 +70,9 @@ async def customer_dashboard(
 async def sla_dashboard(
     current_user: Annotated[User, Depends(require_permission("dashboard.view"))],
     db: Annotated[AsyncSession, Depends(get_db)],
-    from_date: DateQuery,
-    to_date: DateQuery,
-    limit: LimitQuery,
+    from_date: DateQuery = None,
+    to_date: DateQuery = None,
+    limit: LimitQuery = 1000,
 ) -> SLAReportResponse:
     return await AnalyticsService(db).sla_report(current_user, from_date, to_date, limit)
 
@@ -82,8 +82,8 @@ async def sla_dashboard(
 async def analytics_metrics(
     current_user: Annotated[User, Depends(require_permission("report.view"))],
     db: Annotated[AsyncSession, Depends(get_db)],
-    from_date: DateQuery,
-    to_date: DateQuery,
+    from_date: DateQuery = None,
+    to_date: DateQuery = None,
 ) -> AnalyticsMetricResponse:
     return await AnalyticsService(db).metrics(current_user, from_date, to_date)
 
@@ -92,9 +92,9 @@ async def analytics_metrics(
 async def tickets_report(
     current_user: Annotated[User, Depends(require_permission("report.view"))],
     db: Annotated[AsyncSession, Depends(get_db)],
-    from_date: DateQuery,
-    to_date: DateQuery,
-    limit: LimitQuery,
+    from_date: DateQuery = None,
+    to_date: DateQuery = None,
+    limit: LimitQuery = 1000,
 ) -> ReportResponse:
     return await AnalyticsService(db).ticket_report(current_user, from_date, to_date, limit)
 
@@ -103,9 +103,9 @@ async def tickets_report(
 async def sla_report(
     current_user: Annotated[User, Depends(require_permission("report.view"))],
     db: Annotated[AsyncSession, Depends(get_db)],
-    from_date: DateQuery,
-    to_date: DateQuery,
-    limit: LimitQuery,
+    from_date: DateQuery = None,
+    to_date: DateQuery = None,
+    limit: LimitQuery = 1000,
 ) -> SLAReportResponse:
     return await AnalyticsService(db).sla_report(current_user, from_date, to_date, limit)
 
@@ -114,9 +114,9 @@ async def sla_report(
 async def mddr_report(
     current_user: Annotated[User, Depends(require_permission("report.view"))],
     db: Annotated[AsyncSession, Depends(get_db)],
-    from_date: DateQuery,
-    to_date: DateQuery,
-    limit: LimitQuery,
+    from_date: DateQuery = None,
+    to_date: DateQuery = None,
+    limit: LimitQuery = 1000,
 ) -> MDDRReportResponse:
     return await AnalyticsService(db).mddr_report(current_user, from_date, to_date, limit)
 
@@ -125,9 +125,9 @@ async def mddr_report(
 async def change_report(
     current_user: Annotated[User, Depends(require_permission("report.view"))],
     db: Annotated[AsyncSession, Depends(get_db)],
-    from_date: DateQuery,
-    to_date: DateQuery,
-    limit: LimitQuery,
+    from_date: DateQuery = None,
+    to_date: DateQuery = None,
+    limit: LimitQuery = 1000,
 ) -> ChangeReportResponse:
     return await AnalyticsService(db).change_report(current_user, from_date, to_date, limit)
 
@@ -137,9 +137,9 @@ async def export_report(
     report_name: str,
     current_user: Annotated[User, Depends(require_permission("report.view"))],
     db: Annotated[AsyncSession, Depends(get_db)],
-    from_date: DateQuery,
-    to_date: DateQuery,
-    limit: LimitQuery,
+    from_date: DateQuery = None,
+    to_date: DateQuery = None,
+    limit: LimitQuery = 1000,
 ) -> Response:
     service = AnalyticsService(db)
     if report_name == "tickets":
