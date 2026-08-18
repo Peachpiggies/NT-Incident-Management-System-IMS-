@@ -26,6 +26,16 @@ class Settings(BaseSettings):
     max_attachment_bytes: int = 10_000_000
     max_attachments_per_ticket: int = 10
 
+    # --- Database connection pool ---
+    # SQLAlchemy's own defaults (pool_size=5, max_overflow=10, no recycle)
+    # are fine for local dev but too small/unmonitored for production
+    # concurrency. pool_recycle avoids handing out connections postgres or
+    # an intermediary has silently dropped after sitting idle too long.
+    db_pool_size: int = 10
+    db_max_overflow: int = 20
+    db_pool_timeout: int = 30
+    db_pool_recycle: int = 1800
+
     sla_scheduler_enabled: bool = True
 
     clamav_host: str = "127.0.0.1"
