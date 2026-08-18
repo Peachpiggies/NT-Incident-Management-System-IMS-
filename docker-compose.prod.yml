@@ -22,6 +22,66 @@ services:
 
       POSTGRES_DB: ${POSTGRES_DB}
 
+    # Modest tuning above postgres's own defaults (shared_buffers 128MB is
+
+    # low for production) without assuming much spare host RAM, since this
+
+    # host also runs other, unrelated services. statement_timeout is a
+
+    # safety net against a runaway/stuck query pinning a connection
+
+    # forever; raise it if a legitimate report/export query needs longer.
+
+    # log_min_duration_statement surfaces slow queries for the index
+
+    # verification pass below.
+
+    command:
+
+      - postgres
+
+      - "-c"
+
+      - "max_connections=100"
+
+      - "-c"
+
+      - "shared_buffers=256MB"
+
+      - "-c"
+
+      - "effective_cache_size=768MB"
+
+      - "-c"
+
+      - "work_mem=4MB"
+
+      - "-c"
+
+      - "maintenance_work_mem=64MB"
+
+      - "-c"
+
+      - "statement_timeout=60000"
+
+      - "-c"
+
+      - "log_min_duration_statement=1000"
+
+    # Hard cap so postgres can't pressure memory on a host shared with
+
+    # other, unrelated services if something goes wrong (e.g. a runaway
+
+    # query despite statement_timeout, or connection leak). Raise if the
+
+    # dataset grows past what shared_buffers/effective_cache_size above
+
+    # comfortably fit.
+
+    mem_limit: 1g
+
+    mem_reservation: 256m
+
     volumes:
 
       - postgres_data:/var/lib/postgresql/data
