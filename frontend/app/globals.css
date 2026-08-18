@@ -1,10 +1,42 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* Ink & surface — a quiet slate-navy operations console, not another
+     blue-on-white admin template. Status/priority colors are NEVER
+     hardcoded here: they come from the API (TicketStatus.color /
+     TicketPriority.color) since that's server-owned config. */
+  --color-ink-950: #0b1220;
+  --color-ink-900: #101929;
+  --color-ink-800: #16213a;
+  --color-ink-700: #223154;
+  --color-ink-600: #34496f;
+  --color-ink-500: #56698c;
+  --color-ink-300: #9fadc4;
+  --color-ink-100: #e6eaf2;
+  --color-ink-50: #f5f7fb;
+
+  --color-accent-600: #2f6fed;
+  --color-accent-500: #4c86ff;
+  --color-accent-100: #e2ebff;
+
+  --radius-card: 0.625rem;
+}
+
 html,
 body {
   padding: 0;
   margin: 0;
-  font-family: Inter, system-ui, sans-serif;
+  background: var(--color-ink-50);
+  color: var(--color-ink-900);
 }
 
 * {
   box-sizing: border-box;
+}
+
+::selection {
+  background: var(--color-accent-100);
 }

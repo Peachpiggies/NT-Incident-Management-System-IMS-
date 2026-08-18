@@ -1,0 +1,238 @@
+/**
+ * Types mirrored from the backend Pydantic schemas (app/schemas/**).
+ * Keep field names/shapes in exact sync with the Python source — do not
+ * "clean up" naming here, since that's what makes this trustworthy.
+ */
+
+// ===================== Auth (app/schemas/auth.py) =====================
+
+export interface TokenPair {
+  access_token: string;
+  refresh_token: string;
+  token_type: "bearer";
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+// ===================== References (app/schemas/references/*) =====================
+
+export interface RoleSummary {
+  id: string;
+  code: string; // customer | helpdesk_t1 | helpdesk_t2 | manager | admin
+  name: string;
+}
+
+export interface DepartmentSummary {
+  id: string;
+  name: string;
+}
+
+export interface CategorySummary {
+  id: string;
+  code: string;
+  name: string;
+  color: string | null;
+  icon: string | null;
+}
+
+export interface PrioritySummary {
+  id: string;
+  name: string;
+  sort_order: number;
+  color: string | null;
+}
+
+export interface StatusSummary {
+  id: string;
+  name: string;
+  color: string | null;
+  is_closed: boolean;
+}
+
+// Full reference records, from the new GET /priorities and /statuses routes.
+export interface PriorityResponse {
+  id: string;
+  code: string;
+  name: string;
+  color: string | null;
+  sla_minutes: number | null;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface StatusResponse {
+  id: string;
+  code: string;
+  name: string;
+  color: string | null;
+  is_closed: boolean;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface CategoryResponse {
+  id: string;
+  code: string;
+  name: string;
+  color: string | null;
+  icon: string | null;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface SubcategoryResponse {
+  id: string;
+  category_id: string;
+  code: string;
+  name: string;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface ServiceResponse {
+  id: string;
+  subcategory_id: string;
+  code: string;
+  name: string;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+}
+
+// ===================== Users (app/schemas/references/user.py) =====================
+// NOTE: no `full_name` column and no single `role` — roles are plural (M2M).
+
+export interface UserResponse {
+  id: string;
+  username: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  employee_code: string | null;
+  phone: string | null;
+  department: DepartmentSummary | null;
+  roles: RoleSummary[];
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export function fullName(user: Pick<UserResponse, "first_name" | "last_name">): string {
+  const last = user.last_name === "-" ? "" : user.last_name;
+  return [user.first_name, last].filter(Boolean).join(" ");
+}
+
+export function primaryRoleCode(user: UserResponse): string | null {
+  // Highest-privilege role wins for UI purposes (nav, escalation rail).
+  const order = ["admin", "manager", "helpdesk_t2", "helpdesk_t1", "customer"];
+  const codes = user.roles.map((r) => r.code);
+  return order.find((code) => codes.includes(code)) ?? codes[0] ?? null;
+}
+
+// ===================== Users (shared summary, app/schemas/common.py) =====================
+
+export interface UserSummary {
+  id: string;
+  full_name: string;
+  email: string;
+}
+
+// ===================== Tickets (app/schemas/ticket.py) =====================
+
+export type TicketSource = "WEB" | "EMAIL" | "PHONE" | "CHAT" | "API";
+
+export interface TicketCreate {
+  title: string;
+  description: string;
+  category_id: string;
+  subcategory_id?: string | null;
+  service_id?: string | null;
+  priority_id: string;
+  department_id?: string | null;
+  source?: TicketSource;
+}
+
+export interface TicketSummary {
+  id: string;
+  ticket_no: string;
+  title: string;
+  status: StatusSummary;
+  priority: PrioritySummary;
+  requester: UserSummary;
+  assignee: UserSummary | null;
+  created_at: string;
+}
+
+export interface TicketResponse {
+  id: string;
+  ticket_no: string;
+  title: string;
+  description: string;
+  requester: UserSummary;
+  requester_id: string;
+  assignee: UserSummary | null;
+  assigned_to: string | null;
+  department: DepartmentSummary | null;
+  department_id: string | null;
+  category: CategorySummary;
+  category_id: string;
+  priority: PrioritySummary;
+  priority_id: string;
+  status: StatusSummary;
+  status_id: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface TicketPage {
+  items: TicketSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface TicketFilters {
+  q?: string;
+  status_id?: string;
+  category_id?: string;
+  priority_id?: string;
+  department_id?: string;
+  assignee_id?: string;
+  requester_id?: string;
+  limit?: number;
+  offset?: number;
+  sort_by?: "created_at" | "updated_at" | "ticket_no" | "due_at";
+  sort_order?: "asc" | "desc";
+}
+
+export interface TicketCommentResponse {
+  id: string;
+  ticket_id: string;
+  author: UserSummary;
+  body: string;
+  is_internal: boolean;
+  created_at: string;
+}
+
+export interface TicketHistoryResponse {
+  id: string;
+  ticket_id: string;
+  field: string;
+  old_value: string | null;
+  new_value: string | null;
+  changed_by: string | null;
+  changed_at: string;
+}
+
+// ===================== API envelope =====================
+
+export interface ApiError {
+  detail: string | { msg: string; loc: (string | number)[] }[];
+}
