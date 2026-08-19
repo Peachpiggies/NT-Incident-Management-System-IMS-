@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { listTickets } from "@/lib/api/tickets";
 import { listPriorities, listStatuses } from "@/lib/api/references";
 import { apiErrorMessage } from "@/lib/api/client";

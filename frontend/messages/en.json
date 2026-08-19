@@ -1,0 +1,23 @@
+{
+  "app": {
+    "name": "NT-IMS",
+    "tagline": "Incident Management",
+    "loading": "Loading…"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "tickets": "Tickets",
+    "admin": "Admin",
+    "signOut": "Sign out"
+  },
+  "login": {
+    "title": "Sign in",
+    "emailLabel": "Email",
+    "passwordLabel": "Password",
+    "submit": "Sign in",
+    "submitting": "Signing in…"
+  },
+  "localeSwitcher": {
+    "label": "Language"
+  }
+}

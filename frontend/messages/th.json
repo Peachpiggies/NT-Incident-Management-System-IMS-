@@ -1,0 +1,23 @@
+{
+  "app": {
+    "name": "NT-IMS",
+    "tagline": "ระบบจัดการเหตุขัดข้อง",
+    "loading": "กำลังโหลด…"
+  },
+  "nav": {
+    "dashboard": "แดชบอร์ด",
+    "tickets": "ตั๋วงาน",
+    "admin": "ผู้ดูแลระบบ",
+    "signOut": "ออกจากระบบ"
+  },
+  "login": {
+    "title": "เข้าสู่ระบบ",
+    "emailLabel": "อีเมล",
+    "passwordLabel": "รหัสผ่าน",
+    "submit": "เข้าสู่ระบบ",
+    "submitting": "กำลังเข้าสู่ระบบ…"
+  },
+  "localeSwitcher": {
+    "label": "ภาษา"
+  }
+}
