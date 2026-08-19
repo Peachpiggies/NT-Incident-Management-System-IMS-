@@ -231,6 +231,66 @@ export interface TicketHistoryResponse {
   changed_at: string;
 }
 
+// ===================== Dashboard (app/schemas/dashboard.py) =====================
+
+export type DashboardScope = "executive" | "manager" | "helpdesk" | "customer";
+
+export interface DashboardSummaryResponse {
+  total_tickets: number;
+  open_tickets: number;
+  unassigned_tickets: number;
+  resolved_tickets: number;
+  closed_tickets: number;
+  sla_breached_tickets: number;
+  active_users: number | null;
+}
+
+export interface AnalyticsMetricResponse {
+  from_date: string | null;
+  to_date: string | null;
+  mddr_minutes: number | null;
+  mtta_minutes: number | null;
+  mttr_minutes: number | null;
+  mddr_sample_size: number;
+  mtta_sample_size: number;
+  mttr_sample_size: number;
+}
+
+export interface TrendPoint {
+  date: string;
+  value: number;
+}
+
+export interface DistributionItem {
+  label: string;
+  value: number;
+  percentage: number | null;
+}
+
+export interface RecentActivityItem {
+  id: string;
+  actor_name: string;
+  action: string;
+  target: string | null;
+  created_at: string;
+}
+
+export interface DashboardOverviewResponse {
+  scope: DashboardScope;
+  period_start: string | null;
+  period_end: string | null;
+  summary: DashboardSummaryResponse;
+  metrics: AnalyticsMetricResponse;
+  tickets_by_status: DistributionItem[];
+  tickets_by_priority: DistributionItem[];
+  tickets_by_department: DistributionItem[];
+  sla_summary: Record<string, number>;
+  ticket_trend: TrendPoint[];
+  mddr_trend: TrendPoint[];
+  recent_activity: RecentActivityItem[];
+  change_summary: Record<string, number>;
+}
+
 // ===================== API envelope =====================
 
 export interface ApiError {
