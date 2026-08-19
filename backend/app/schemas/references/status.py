@@ -16,13 +16,20 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class StatusBase(BaseModel):
-    """Shared status fields."""
+    """Shared status fields.
 
-    name: str = Field(..., min_length=1, max_length=50)
-    order: int = Field(..., ge=0, description="Display/workflow order")
-    is_default: bool = False
-    is_closed: bool = Field(False, description="Whether this status counts as 'done'/closed")
+    Fixed to match `TicketStatus` (models.py): the model has no `order` or
+    `is_default` column. `sort_order` is the display/workflow ordering
+    field and `is_active` marks whether the status can still be assigned,
+    mirroring `PriorityBase`'s shape for consistency across reference types.
+    """
+
+    code: str = Field(..., min_length=1, max_length=50)
+    name: str = Field(..., min_length=1, max_length=100)
     color: str | None = Field(None, max_length=20, description="Hex color, e.g. #22C55E")
+    is_closed: bool = Field(False, description="Whether this status counts as 'done'/closed")
+    sort_order: int = Field(0, ge=0, description="Display/workflow order")
+    is_active: bool = True
 
 
 # ==========================================================
@@ -37,11 +44,12 @@ class StatusCreate(StatusBase):
 class StatusUpdate(BaseModel):
     """Update a status. All fields optional."""
 
-    name: str | None = Field(None, min_length=1, max_length=50)
-    order: int | None = Field(None, ge=0)
-    is_default: bool | None = None
-    is_closed: bool | None = None
+    code: str | None = Field(None, min_length=1, max_length=50)
+    name: str | None = Field(None, min_length=1, max_length=100)
     color: str | None = Field(None, max_length=20)
+    is_closed: bool | None = None
+    sort_order: int | None = Field(None, ge=0)
+    is_active: bool | None = None
 
 
 # ==========================================================

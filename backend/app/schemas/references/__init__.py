@@ -153,6 +153,20 @@ from app.schemas.rca import (
     RootCauseResponse,
     RootCauseUpdate,
 )
+from app.schemas.references.priority import (
+    PriorityBase,
+    PriorityCreate,
+    PriorityListResponse,
+    PriorityResponse,
+    PriorityUpdate,
+)
+from app.schemas.references.status import (
+    StatusBase,
+    StatusCreate,
+    StatusListResponse,
+    StatusResponse,
+    StatusUpdate,
+)
 from app.schemas.sla_engine import (
     SLABreachListResponse,
     SLABreachResponse,
@@ -204,6 +218,20 @@ from app.schemas.vendor import (
 )
 
 __all__ = [
+
+    # priority
+    "PriorityBase",
+    "PriorityCreate",
+    "PriorityListResponse",
+    "PriorityResponse",
+    "PriorityUpdate",
+
+    # status
+    "StatusBase",
+    "StatusCreate",
+    "StatusListResponse",
+    "StatusResponse",
+    "StatusUpdate",
 
     # attachments
     "AttachmentBase",

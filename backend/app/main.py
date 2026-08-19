@@ -18,6 +18,7 @@ from app.api.v1.permissions import router as permissions_router
 from app.api.v1.problem import router as problem_router
 from app.api.v1.rca import router as rca_router
 from app.api.v1.realtime import router as realtime_router
+from app.api.v1.references import router as references_router
 from app.api.v1.sla import router as sla_router
 from app.api.v1.tickets import router as tickets_router
 from app.api.v1.users import router as users_router
@@ -168,5 +169,6 @@ app.include_router(tickets_router, prefix="/api/v1")
 app.include_router(knowledge_base_router, prefix="/api/v1")
 app.include_router(rca_router, prefix="/api/v1")
 app.include_router(problem_router, prefix="/api/v1")
+app.include_router(references_router, prefix="/api/v1")
 app.include_router(workflow_router, prefix="/api/v1")
 app.include_router(health_router, prefix="/api/v1")
