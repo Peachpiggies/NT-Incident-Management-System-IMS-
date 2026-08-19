@@ -29,6 +29,29 @@ ADMIN_EMAIL = "admin@example.com"
 ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = "ChangeMe123!"
 
+# Dev-only helpdesk test accounts. Change these credentials before any
+# non-local deployment.
+DEV_USERS = [
+    {
+        "username": "helpdesk_T1",
+        "email": "helpdesk_t1@example.com",
+        "password": "ChangeMe_hd!",
+        "first_name": "Helpdesk",
+        "last_name": "T1",
+        "department_code": "HELPDESK",
+        "role_code": "helpdesk_t1",
+    },
+    {
+        "username": "TechTeam_T2",
+        "email": "techteam_t2@example.com",
+        "password": "ChangeMe_tt!",
+        "first_name": "Tech Team",
+        "last_name": "T2",
+        "department_code": "HELPDESK",
+        "role_code": "helpdesk_t2",
+    },
+]
+
 ROLES = [
     ("customer", "Customer", "External requester"),
     ("helpdesk_t1", "Helpdesk T1", "First-line helpdesk"),
@@ -531,11 +554,41 @@ async def seed_database() -> None:
         )
         if not admin_role:
             session.add(UserRole(user_id=admin.id, role_id=roles["admin"].id))
+
+        for dev_user in DEV_USERS:
+            user = await session.scalar(
+                select(User).where(User.email == dev_user["email"])
+            )
+            if not user:
+                user = User(
+                    username=dev_user["username"],
+                    email=dev_user["email"],
+                    first_name=dev_user["first_name"],
+                    last_name=dev_user["last_name"],
+                    password_hash=hash_password(dev_user["password"]),
+                    department_id=departments[dev_user["department_code"]].id,
+                    is_active=True,
+                )
+                session.add(user)
+                await session.flush()
+            user_role = await session.scalar(
+                select(UserRole).where(
+                    UserRole.user_id == user.id,
+                    UserRole.role_id == roles[dev_user["role_code"]].id,
+                )
+            )
+            if not user_role:
+                session.add(
+                    UserRole(user_id=user.id, role_id=roles[dev_user["role_code"]].id)
+                )
+
         await session.commit()
 
     print("Seed complete")
     print(f"Admin user: {ADMIN_EMAIL}")
-    print("Change the default admin password before first production use.")
+    for dev_user in DEV_USERS:
+        print(f"{dev_user['role_code']} user: {dev_user['username']} ({dev_user['email']})")
+    print("Change all default seeded passwords before first production use.")
 
 
 if __name__ == "__main__":
