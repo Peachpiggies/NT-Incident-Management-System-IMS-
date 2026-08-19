@@ -59,6 +59,15 @@ DEV_USERS = [
         "department_code": "CUSTOMER",
         "role_code": "customer",
     },
+    {
+        "username": "Manager_1",
+        "email": "manager@example.com",
+        "password": "ChangeMe_mgr!",
+        "first_name": "Ops",
+        "last_name": "Manager",
+        "department_code": "MANAGEMENT",
+        "role_code": "manager",
+    },
 ]
 
 ROLES = [

@@ -200,11 +200,12 @@ class TicketEscalationService:
             )
         )
         # See module docstring for why action="ticket.escalate" here.
-        await TicketWorkflowService(self.db).transition_to_code(
-            ticket,
-            "ESCALATED",
-            actor,
-            action="ticket.escalate",
-            remark=f"Technical escalation to tier {to_tier} ({reason_code})",
+        if ticket.status.code != "ESCALATED":
+            await TicketWorkflowService(self.db).transition_to_code(
+                ticket,
+                "ESCALATED",
+                actor,
+                action="ticket.escalate",
+                remark=f"Technical escalation to tier {to_tier} ({reason_code})",
         )
         return escalation
