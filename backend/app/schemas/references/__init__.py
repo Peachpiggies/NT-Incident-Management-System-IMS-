@@ -5,20 +5,6 @@ Re-exports all request/response schemas so they can be imported
 directly from `app.schemas` instead of the individual submodules.
 """
 
-from app.schemas.references.priority import (
-    PriorityBase,
-    PriorityCreate,
-    PriorityListResponse,
-    PriorityResponse,
-    PriorityUpdate,
-)
-from app.schemas.references.status import (
-    StatusBase,
-    StatusCreate,
-    StatusListResponse,
-    StatusResponse,
-    StatusUpdate,
-)
 from app.schemas.attachments import (
     AttachmentBase,
     AttachmentListResponse,
@@ -166,6 +152,20 @@ from app.schemas.rca import (
     RootCauseCreate,
     RootCauseResponse,
     RootCauseUpdate,
+)
+from app.schemas.references.priority import (
+    PriorityBase,
+    PriorityCreate,
+    PriorityListResponse,
+    PriorityResponse,
+    PriorityUpdate,
+)
+from app.schemas.references.status import (
+    StatusBase,
+    StatusCreate,
+    StatusListResponse,
+    StatusResponse,
+    StatusUpdate,
 )
 from app.schemas.sla_engine import (
     SLABreachListResponse,
