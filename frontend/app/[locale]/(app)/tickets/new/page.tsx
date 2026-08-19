@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
 import { createTicket } from "@/lib/api/tickets";
 import { listCategories, listPriorities, listSubcategories } from "@/lib/api/references";
@@ -9,6 +10,7 @@ import type { CategoryResponse, PriorityResponse, SubcategoryResponse } from "@/
 import { PageHeader } from "@/components/ui/PageHeader";
 
 export default function NewTicketPage() {
+  const t = useTranslations("newTicket");
   const router = useRouter();
   const [categories, setCategories] = useState<CategoryResponse[]>([]);
   const [subcategories, setSubcategories] = useState<SubcategoryResponse[]>([]);
@@ -51,7 +53,7 @@ export default function NewTicketPage() {
       });
       router.push(`/tickets/${ticket.id}`);
     } catch (err) {
-      setError(apiErrorMessage(err, "Couldn't create the ticket"));
+      setError(apiErrorMessage(err, t("errorFallback")));
     } finally {
       setSubmitting(false);
     }
@@ -59,23 +61,23 @@ export default function NewTicketPage() {
 
   return (
     <div className="max-w-2xl">
-      <PageHeader title="New ticket" description="Describe what's happening — we'll route it from here." />
+      <PageHeader title={t("title")} description={t("description")} />
 
       <form onSubmit={handleSubmit} className="space-y-5 rounded-card border border-ink-100 bg-white p-6">
         <label className="flex flex-col gap-1.5">
-          <span className="text-xs font-medium text-ink-500">Title</span>
+          <span className="text-xs font-medium text-ink-500">{t("titleLabel")}</span>
           <input
             required
             minLength={5}
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             className="rounded-md border border-ink-100 px-3 py-2 text-sm outline-none focus:border-accent-500"
-            placeholder="Short summary of the issue"
+            placeholder={t("titlePlaceholder")}
           />
         </label>
 
         <label className="flex flex-col gap-1.5">
-          <span className="text-xs font-medium text-ink-500">Description</span>
+          <span className="text-xs font-medium text-ink-500">{t("descriptionLabel")}</span>
           <textarea
             required
             minLength={10}
@@ -83,20 +85,20 @@ export default function NewTicketPage() {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             className="rounded-md border border-ink-100 px-3 py-2 text-sm outline-none focus:border-accent-500"
-            placeholder="What happened, when, and what you've already tried"
+            placeholder={t("descriptionPlaceholder")}
           />
         </label>
 
         <div className="grid grid-cols-2 gap-4">
           <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-ink-500">Category</span>
+            <span className="text-xs font-medium text-ink-500">{t("category")}</span>
             <select
               required
               value={categoryId}
               onChange={(e) => setCategoryId(e.target.value)}
               className="rounded-md border border-ink-100 px-3 py-2 text-sm outline-none focus:border-accent-500"
             >
-              <option value="">Select…</option>
+              <option value="">{t("select")}</option>
               {categories.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
@@ -106,14 +108,14 @@ export default function NewTicketPage() {
           </label>
 
           <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-ink-500">Subcategory (optional)</span>
+            <span className="text-xs font-medium text-ink-500">{t("subcategory")}</span>
             <select
               value={subcategoryId}
               onChange={(e) => setSubcategoryId(e.target.value)}
               disabled={!categoryId}
               className="rounded-md border border-ink-100 px-3 py-2 text-sm outline-none focus:border-accent-500 disabled:bg-ink-50"
             >
-              <option value="">None</option>
+              <option value="">{t("none")}</option>
               {subcategories.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
@@ -124,14 +126,14 @@ export default function NewTicketPage() {
         </div>
 
         <label className="flex flex-col gap-1.5">
-          <span className="text-xs font-medium text-ink-500">Priority</span>
+          <span className="text-xs font-medium text-ink-500">{t("priority")}</span>
           <select
             required
             value={priorityId}
             onChange={(e) => setPriorityId(e.target.value)}
             className="rounded-md border border-ink-100 px-3 py-2 text-sm outline-none focus:border-accent-500"
           >
-            <option value="">Select…</option>
+            <option value="">{t("select")}</option>
             {priorities.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -147,7 +149,7 @@ export default function NewTicketPage() {
           disabled={submitting}
           className="rounded-md bg-accent-600 px-4 py-2 text-sm font-medium text-white hover:bg-accent-500 disabled:opacity-60"
         >
-          {submitting ? "Creating…" : "Create ticket"}
+          {submitting ? t("creating") : t("createButton")}
         </button>
       </form>
     </div>
