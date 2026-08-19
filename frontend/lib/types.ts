@@ -187,6 +187,7 @@ export interface TicketResponse {
   priority_id: string;
   status: StatusSummary;
   status_id: string;
+  current_tier: number;
   created_at?: string;
   updated_at?: string;
 }
@@ -229,6 +230,66 @@ export interface TicketHistoryResponse {
   new_value: string | null;
   changed_by: string | null;
   changed_at: string;
+}
+
+// ===================== Ticket workflow actions (app/api/v1/tickets.py) =====================
+// Request bodies and the one non-Ticket response shape (escalation) used by
+// the assign/claim/escalate/resolve/etc. action endpoints.
+
+export interface TicketAssigneeRequest {
+  assignee_id?: string | null;
+  reason?: string | null;
+}
+
+export interface TicketDepartmentAssignmentRequest {
+  department_id: string;
+  reason?: string | null;
+}
+
+export interface TicketFunctionalEscalationRequest {
+  to_department_id: string;
+  reason_code?: string | null;
+  comment?: string | null;
+}
+
+export type TicketTechnicalReasonCode =
+  | "SKILL_REQUIRED"
+  | "COMPLEXITY"
+  | "ACCESS_REQUIRED"
+  | "SYSTEM_DEPENDENCY"
+  | "UNRESOLVED_AFTER_ATTEMPTS"
+  | "SLA_RISK"
+  | "MDDR_RISK";
+
+export interface TicketTechnicalEscalationRequest {
+  to_tier: number;
+  reason_code: TicketTechnicalReasonCode;
+  to_department_id?: string | null;
+  comment?: string | null;
+  allow_tier_skip?: boolean;
+}
+
+export interface TicketEscalationResponse {
+  id: string;
+  ticket_id: string;
+  escalation_type: string;
+  from_tier: number;
+  to_tier: number;
+  from_department_id: string | null;
+  to_department_id: string | null;
+  from_user_id: string | null;
+  reason_code: string | null;
+  comment: string | null;
+  escalated_by: string | null;
+  escalated_at: string;
+}
+
+export interface TicketConfirmationRequest {
+  feedback?: string | null;
+}
+
+export interface TicketRejectionRequest {
+  reason: string;
 }
 
 // ===================== Dashboard (app/schemas/dashboard.py) =====================

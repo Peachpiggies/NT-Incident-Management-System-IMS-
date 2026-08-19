@@ -278,6 +278,12 @@ class TicketDetail(BaseModel):
     status: StatusSummary
     status_id: UUID
 
+    # Drives the frontend escalation rail (customer -> t1 -> t2 -> manager)
+    # and gates which escalate/receive_escalated actions are offered, since
+    # there's no other field on this response that exposes where a ticket
+    # sits in the T1->T2->T3 expertise chain (see Ticket.current_tier).
+    current_tier: int = 1
+
     # keep the rest of your existing fields unchanged
 
 

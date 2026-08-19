@@ -10,15 +10,18 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { ApiErrorState } from "@/components/ui/ApiErrorState";
 import { ColorBadge } from "@/components/ui/Badge";
 import { EscalationRail } from "@/components/nav/EscalationRail";
+import { TicketActions } from "@/components/tickets/TicketActions";
 
-// Maps a ticket status/priority to the escalation-rail role it currently
-// sits with. There's no single "current tier" field on TicketResponse —
-// assignee's role is the closest proxy — so this reads the assignee's
-// department/role context where available and otherwise shows the chain
-// unfilled rather than guessing.
+// Maps a ticket's current_tier (1..3, see Ticket.current_tier on the
+// backend) to the escalation-rail role it currently sits with. The rail
+// has no dedicated Tier 3 step (see EscalationRail's own comment — there's
+// no Tier 3 role in this backend), so tier 3 is folded into "manager" as
+// the highest step the rail can show.
 function currentStepFromTicket(ticket: TicketResponse): string | null {
   if (!ticket.assignee) return "customer";
-  return null; // Resolved once assignee role is exposed on TicketResponse.
+  if (ticket.current_tier <= 1) return "helpdesk_t1";
+  if (ticket.current_tier === 2) return "helpdesk_t2";
+  return "manager";
 }
 
 export default function TicketDetailPage() {
@@ -44,6 +47,18 @@ export default function TicketDetailPage() {
       setError(apiErrorMessage(err, t("errorFallback")));
     } finally {
       setLoading(false);
+    }
+  }
+
+  // Re-fetches just the ticket after a workflow action (assign/escalate/
+  // resolve/etc.) without toggling the full-page loading state, so the
+  // detail view doesn't flash back to a spinner on every button click.
+  async function refreshTicket() {
+    try {
+      const ticketData = await getTicket(params.id);
+      setTicket(ticketData);
+    } catch (err) {
+      setError(apiErrorMessage(err, t("errorFallback")));
     }
   }
 
@@ -74,6 +89,8 @@ export default function TicketDetailPage() {
 
       <div className="grid grid-cols-3 gap-6">
         <div className="col-span-2 space-y-6">
+          <TicketActions ticket={ticket} onUpdated={refreshTicket} />
+
           <div className="rounded-card border border-ink-100 bg-white p-5">
             <p className="mb-2 text-sm font-medium text-ink-950">{t("description")}</p>
             <p className="whitespace-pre-wrap text-sm text-ink-700">{ticket.description}</p>
