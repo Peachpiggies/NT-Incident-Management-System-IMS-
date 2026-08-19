@@ -2,7 +2,7 @@
 
 ![CI](../../actions/workflows/ci.yml/badge.svg)
 
-Phase 1 provides a production-oriented local foundation: a Next.js frontend, a FastAPI backend, and PostgreSQL orchestrated with Docker Compose.
+A full-stack incident management system: ticketing with SLA tracking and escalation, a knowledge base, notifications, root cause analysis, and problem/change management, built on a Next.js frontend, a FastAPI backend, and PostgreSQL, orchestrated locally with Docker Compose.
 
 ## Stack
 
@@ -67,8 +67,8 @@ Create a revision after adding or changing ORM models, then apply it to the loca
 cd backend
 DATABASE_URL=postgresql+asyncpg://ims:change-me-for-local-development@db:5432/ims \
 JWT_SECRET=secret \
-/home/peach/.venv/bin/python -m alembic -c alembic.ini revision --autogenerate -m "describe_change"
-/home/peach/.venv/bin/python -m alembic -c alembic.ini upgrade head
+python -m alembic -c alembic.ini revision --autogenerate -m "describe_change"
+python -m alembic -c alembic.ini upgrade head
 ```
 
 ## Environment configuration
@@ -89,13 +89,19 @@ Docker Compose uses `/readyz` for the backend health check, so the frontend star
 ```text
 .
 ├── backend/             # FastAPI application and database migration tooling
+│   ├── alembic/         # Migrations
+│   ├── scripts/         # Maintenance/diagnostic scripts (e.g. schema drift check)
+│   ├── tests/           # Pytest suite
 │   └── app/
 │       ├── api/         # Versioned HTTP routes
 │       ├── core/        # Configuration and cross-cutting concerns
-│       └── db/          # Engine, sessions, ORM base
+│       ├── db/          # Engine, sessions, ORM base
+│       ├── schemas/     # Pydantic request/response models
+│       └── services/    # Business logic (SLA, workflow, notifications, etc.)
 ├── frontend/            # Next.js application
 │   └── app/             # App Router routes and UI
 ├── docs/                # Engineering documentation
+├── scripts/             # Ops scripts (db backup/restore)
 ├── docker-compose.yml   # Full local development stack
 └── .env.example         # Safe configuration template
 ```
