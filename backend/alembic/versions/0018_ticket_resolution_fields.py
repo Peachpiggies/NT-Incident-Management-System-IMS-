@@ -20,10 +20,18 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("tickets", sa.Column("resolution_summary", sa.Text(), nullable=True))
-    op.add_column("tickets", sa.Column("resolution_code", sa.String(length=50), nullable=True))
+    bind = op.get_bind()
+    cols = {c["name"] for c in sa.inspect(bind).get_columns("tickets")}
+    if "resolution_summary" not in cols:
+        op.add_column("tickets", sa.Column("resolution_summary", sa.Text(), nullable=True))
+    if "resolution_code" not in cols:
+        op.add_column("tickets", sa.Column("resolution_code", sa.String(length=50), nullable=True))
 
 
 def downgrade() -> None:
-    op.drop_column("tickets", "resolution_code")
-    op.drop_column("tickets", "resolution_summary")
+    bind = op.get_bind()
+    cols = {c["name"] for c in sa.inspect(bind).get_columns("tickets")}
+    if "resolution_code" in cols:
+        op.drop_column("tickets", "resolution_code")
+    if "resolution_summary" in cols:
+        op.drop_column("tickets", "resolution_summary")
