@@ -50,6 +50,15 @@ DEV_USERS = [
         "department_code": "HELPDESK",
         "role_code": "helpdesk_t2",
     },
+    {
+        "username": "Customer_1",
+        "email": "customer1@example.com",
+        "password": "ChangeMe_cust!",
+        "first_name": "Test",
+        "last_name": "Customer",
+        "department_code": "CUSTOMER",
+        "role_code": "customer",
+    },
 ]
 
 ROLES = [
@@ -134,6 +143,7 @@ ROLE_PERMISSION_CODES = {
     },
     "helpdesk_t1": {
         "dashboard.view",
+        "ticket.create",
         "ticket.read_all",
         "ticket.comment",
         "ticket.attachment_add",
@@ -153,6 +163,7 @@ ROLE_PERMISSION_CODES = {
     },
     "helpdesk_t2": {
         "dashboard.view",
+        "ticket.create",
         "ticket.read_all",
         "ticket.comment",
         "ticket.attachment_add",
@@ -188,6 +199,7 @@ ROLE_PERMISSION_CODES = {
         "change.validate",
     },
     "manager": {
+        "ticket.create",
         "ticket.read_all",
         "ticket.assign",
         "ticket.resolve",
@@ -240,6 +252,7 @@ async def seed_database() -> None:
             ("SERVER", "Server"),
             ("SECURITY", "Security"),
             ("MANAGEMENT", "Management"),
+            ("CUSTOMER", "Customer"),
         ]:
             departments[code] = await _get_or_create(
                 session, Department, code, name=name, is_active=True
