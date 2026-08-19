@@ -176,6 +176,12 @@ services:
 
       - "3000"
 
+    # No healthcheck override here — the runner stage's Dockerfile already
+
+    # defines HEALTHCHECK (curl against http://localhost:3000/), and Compose
+
+    # picks that up automatically for the `service_healthy` condition below.
+
     networks:
 
       - ims_network
@@ -190,9 +196,13 @@ services:
 
     depends_on:
 
-      - backend
+      backend:
 
-      - frontend
+        condition: service_healthy
+
+      frontend:
+
+        condition: service_healthy
 
     ports:
 

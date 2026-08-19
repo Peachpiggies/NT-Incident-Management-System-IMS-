@@ -1,3 +1,7 @@
+"use client";
+
+import { useTranslations } from "next-intl";
+
 /**
  * Status/priority pill that reads its color straight from the API
  * (TicketStatus.color / TicketPriority.color) rather than a hardcoded
@@ -22,16 +26,11 @@ export function ColorBadge({ label, color }: { label: string; color: string | nu
 }
 
 export function RoleBadge({ code }: { code: string }) {
-  const labels: Record<string, string> = {
-    customer: "Customer",
-    helpdesk_t1: "Helpdesk T1",
-    helpdesk_t2: "Helpdesk T2",
-    manager: "Manager",
-    admin: "Admin",
-  };
+  const t = useTranslations("role");
+  const label = t.has(code) ? t(code) : code;
   return (
     <span className="inline-flex items-center rounded-full bg-ink-800 px-2.5 py-0.5 text-xs font-medium text-ink-100">
-      {labels[code] ?? code}
+      {label}
     </span>
   );
 }

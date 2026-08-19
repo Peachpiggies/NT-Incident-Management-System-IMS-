@@ -1,19 +1,22 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { useTranslations } from "next-intl";
+import { Link, usePathname } from "@/i18n/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { fullName } from "@/lib/types";
 import { RoleBadge } from "@/components/ui/Badge";
+import { LocaleSwitcher } from "@/components/nav/LocaleSwitcher";
 
 const NAV = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/tickets", label: "Tickets" },
-];
+  { href: "/dashboard", key: "dashboard" },
+  { href: "/tickets", key: "tickets" },
+] as const;
 
-const ADMIN_NAV = [{ href: "/admin", label: "Admin" }];
+const ADMIN_NAV = [{ href: "/admin", key: "admin" }] as const;
 
 export function Sidebar() {
+  const t = useTranslations("nav");
+  const tApp = useTranslations("app");
   const pathname = usePathname();
   const { user, roleCode, logout } = useAuth();
 
@@ -23,8 +26,8 @@ export function Sidebar() {
     <aside className="flex h-screen w-60 flex-col justify-between border-r border-ink-100 bg-ink-950 text-ink-100">
       <div>
         <div className="px-5 py-5">
-          <p className="text-sm font-semibold tracking-tight text-white">NT-IMS</p>
-          <p className="text-xs text-ink-300">Incident Management</p>
+          <p className="text-sm font-semibold tracking-tight text-white">{tApp("name")}</p>
+          <p className="text-xs text-ink-300">{tApp("tagline")}</p>
         </div>
         <nav className="mt-2 flex flex-col gap-1 px-3">
           {items.map((item) => {
@@ -37,7 +40,7 @@ export function Sidebar() {
                   active ? "bg-accent-600 text-white" : "text-ink-300 hover:bg-ink-800 hover:text-white"
                 }`}
               >
-                {item.label}
+                {t(item.key)}
               </Link>
             );
           })}
@@ -53,11 +56,14 @@ export function Sidebar() {
               <RoleBadge code={roleCode} />
             </div>
           )}
+          <div className="mt-3">
+            <LocaleSwitcher />
+          </div>
           <button
             onClick={() => void logout()}
             className="mt-3 w-full rounded-md border border-ink-700 px-3 py-1.5 text-xs font-medium text-ink-300 hover:border-ink-500 hover:text-white"
           >
-            Sign out
+            {t("signOut")}
           </button>
         </div>
       )}

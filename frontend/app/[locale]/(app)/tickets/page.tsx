@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import { useTranslations } from "next-intl";
+import { Link } from "@/i18n/navigation";
 import { listTickets } from "@/lib/api/tickets";
 import { listPriorities, listStatuses } from "@/lib/api/references";
 import { apiErrorMessage } from "@/lib/api/client";
@@ -11,6 +12,8 @@ import { ApiErrorState } from "@/components/ui/ApiErrorState";
 import { ColorBadge } from "@/components/ui/Badge";
 
 export default function TicketsPage() {
+  const t = useTranslations("tickets");
+  const tApp = useTranslations("app");
   const [page, setPage] = useState<TicketPage | null>(null);
   const [statuses, setStatuses] = useState<StatusResponse[]>([]);
   const [priorities, setPriorities] = useState<PriorityResponse[]>([]);
@@ -34,7 +37,7 @@ export default function TicketsPage() {
       });
       setPage(data);
     } catch (err) {
-      setError(apiErrorMessage(err, "Couldn't load tickets"));
+      setError(apiErrorMessage(err, t("errorFallback")));
     } finally {
       setLoading(false);
     }
@@ -54,14 +57,14 @@ export default function TicketsPage() {
   return (
     <div>
       <PageHeader
-        title="Tickets"
-        description="Everything you're able to see, filtered live."
+        title={t("title")}
+        description={t("description")}
         action={
           <Link
             href="/tickets/new"
             className="rounded-md bg-accent-600 px-3 py-2 text-sm font-medium text-white hover:bg-accent-500"
           >
-            New ticket
+            {t("newTicket")}
           </Link>
         }
       />
@@ -76,7 +79,7 @@ export default function TicketsPage() {
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search title or description…"
+          placeholder={t("searchPlaceholder")}
           className="w-64 rounded-md border border-ink-100 bg-white px-3 py-2 text-sm outline-none focus:border-accent-500"
         />
         <select
@@ -84,7 +87,7 @@ export default function TicketsPage() {
           onChange={(e) => setStatusId(e.target.value)}
           className="rounded-md border border-ink-100 bg-white px-3 py-2 text-sm outline-none focus:border-accent-500"
         >
-          <option value="">All statuses</option>
+          <option value="">{t("allStatuses")}</option>
           {statuses.map((s) => (
             <option key={s.id} value={s.id}>
               {s.name}
@@ -96,7 +99,7 @@ export default function TicketsPage() {
           onChange={(e) => setPriorityId(e.target.value)}
           className="rounded-md border border-ink-100 bg-white px-3 py-2 text-sm outline-none focus:border-accent-500"
         >
-          <option value="">All priorities</option>
+          <option value="">{t("allPriorities")}</option>
           {priorities.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
@@ -107,12 +110,12 @@ export default function TicketsPage() {
           type="submit"
           className="rounded-md border border-ink-100 bg-white px-3 py-2 text-sm font-medium text-ink-700 hover:border-ink-300"
         >
-          Search
+          {t("search")}
         </button>
       </form>
 
       <div className="overflow-hidden rounded-card border border-ink-100 bg-white">
-        {loading && <p className="px-5 py-8 text-center text-sm text-ink-500">Loading…</p>}
+        {loading && <p className="px-5 py-8 text-center text-sm text-ink-500">{tApp("loading")}</p>}
         {error && (
           <div className="p-5">
             <ApiErrorState message={error} onRetry={load} />
@@ -123,11 +126,11 @@ export default function TicketsPage() {
           <table className="w-full text-left text-sm">
             <thead className="border-b border-ink-100 bg-ink-50 text-xs font-medium uppercase tracking-wide text-ink-500">
               <tr>
-                <th className="px-5 py-3">Ticket</th>
-                <th className="px-5 py-3">Requester</th>
-                <th className="px-5 py-3">Assignee</th>
-                <th className="px-5 py-3">Priority</th>
-                <th className="px-5 py-3">Status</th>
+                <th className="px-5 py-3">{t("colTicket")}</th>
+                <th className="px-5 py-3">{t("colRequester")}</th>
+                <th className="px-5 py-3">{t("colAssignee")}</th>
+                <th className="px-5 py-3">{t("colPriority")}</th>
+                <th className="px-5 py-3">{t("colStatus")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-ink-100">
@@ -140,7 +143,7 @@ export default function TicketsPage() {
                     <p className="text-xs text-ink-500">{ticket.ticket_no}</p>
                   </td>
                   <td className="px-5 py-3 text-ink-700">{ticket.requester.full_name}</td>
-                  <td className="px-5 py-3 text-ink-700">{ticket.assignee?.full_name ?? "Unassigned"}</td>
+                  <td className="px-5 py-3 text-ink-700">{ticket.assignee?.full_name ?? t("unassigned")}</td>
                   <td className="px-5 py-3">
                     <ColorBadge label={ticket.priority.name} color={ticket.priority.color} />
                   </td>
@@ -152,7 +155,7 @@ export default function TicketsPage() {
               {page.items.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-5 py-8 text-center text-sm text-ink-500">
-                    No tickets match these filters.
+                    {t("noResults")}
                   </td>
                 </tr>
               )}
