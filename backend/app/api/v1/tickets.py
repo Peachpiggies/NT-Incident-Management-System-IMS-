@@ -24,6 +24,7 @@ from app.api.v1.dependencies import (
     ticket_read_scope,
     user_has_permission,
 )
+from app.core.tier_ownership import require_current_tier_holder
 from app.db.models import (
     Department,
     Notification,
@@ -1383,6 +1384,13 @@ async def receive_escalated_ticket(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Ticket:
     ticket = await _get_ticket_or_404(ticket_id, db)
+    # require_permission above only checks that the caller's role carries
+    # ticket.receive_escalated at all (currently only helpdesk_t2 and
+    # admin) -- it says nothing about whether the ticket is actually still
+    # at that tier. Without this, a Helpdesk T2 user could receive_escalated
+    # a ticket that has since moved on to Tier 3 (Manager), self-assigning
+    # work that isn't theirs anymore.
+    await require_current_tier_holder(db, ticket, current_user)
     ticket.assigned_to = current_user.id
     await TicketWorkflowService(db).transition_to_code(
         ticket, "IN_PROGRESS", current_user, action="ticket.receive_escalated"

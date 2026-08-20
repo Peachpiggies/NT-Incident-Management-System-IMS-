@@ -167,7 +167,11 @@ export function TicketActions({
     });
   }
 
-  if (can("ticket.receive_escalated") && statusName === "Escalated") {
+  if (
+    can("ticket.receive_escalated") &&
+    statusName === "Escalated" &&
+    isCurrentTierHolder(ticket, roleCode)
+  ) {
     actions.push({
       key: "receive",
       label: t("receive"),

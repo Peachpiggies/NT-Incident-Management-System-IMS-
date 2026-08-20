@@ -1,0 +1,120 @@
+diff --git a/backend/app/api/v1/tickets.py b/backend/app/api/v1/tickets.py
+index a642568..534459b 100644
+--- a/backend/app/api/v1/tickets.py
++++ b/backend/app/api/v1/tickets.py
+@@ -24,6 +24,7 @@ from app.api.v1.dependencies import (
+     ticket_read_scope,
+     user_has_permission,
+ )
++from app.core.tier_ownership import require_current_tier_holder
+ from app.db.models import (
+     Department,
+     Notification,
+@@ -1383,6 +1384,13 @@ async def receive_escalated_ticket(
+     db: Annotated[AsyncSession, Depends(get_db)],
+ ) -> Ticket:
+     ticket = await _get_ticket_or_404(ticket_id, db)
++    # require_permission above only checks that the caller's role carries
++    # ticket.receive_escalated at all (currently only helpdesk_t2 and
++    # admin) -- it says nothing about whether the ticket is actually still
++    # at that tier. Without this, a Helpdesk T2 user could receive_escalated
++    # a ticket that has since moved on to Tier 3 (Manager), self-assigning
++    # work that isn't theirs anymore.
++    await require_current_tier_holder(db, ticket, current_user)
+     ticket.assigned_to = current_user.id
+     await TicketWorkflowService(db).transition_to_code(
+         ticket, "IN_PROGRESS", current_user, action="ticket.receive_escalated"
+diff --git a/backend/app/services/escalation.py b/backend/app/services/escalation.py
+index 04b9fa6..7823648 100644
+--- a/backend/app/services/escalation.py
++++ b/backend/app/services/escalation.py
+@@ -37,6 +37,7 @@ from fastapi import HTTPException, status
+ from sqlalchemy import select
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
++from app.core.tier_ownership import require_current_tier_holder
+ from app.db.models import Department, Ticket, TicketEscalation, TicketHistory, User
+ from app.services.workflow import TicketWorkflowService
+ 
+@@ -85,6 +86,7 @@ class TicketEscalationService:
+         comment: str | None = None,
+     ) -> TicketEscalation:
+         """Re-route to a more appropriate team. Tier is unaffected."""
++        await require_current_tier_holder(self.db, ticket, actor)
+         department = await self._active_department(to_department_id)
+         from_department_id = ticket.department_id
+         from_user_id = ticket.assigned_to
+@@ -137,6 +139,7 @@ class TicketEscalationService:
+         allow_tier_skip: bool = False,
+     ) -> TicketEscalation:
+         """Move up the expertise chain (T1 -> T2 -> T3)."""
++        await require_current_tier_holder(self.db, ticket, actor)
+         if reason_code not in TECHNICAL_REASON_CODES:
+             raise HTTPException(
+                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+diff --git a/frontend/components/tickets/TicketActions.tsx b/frontend/components/tickets/TicketActions.tsx
+index d702d27..c88fb45 100644
+--- a/frontend/components/tickets/TicketActions.tsx
++++ b/frontend/components/tickets/TicketActions.tsx
+@@ -42,6 +42,21 @@ const TECHNICAL_REASON_CODES: TicketTechnicalReasonCode[] = [
+ 
+ const MAX_TIER = 3;
+ 
++// Mirrors currentStepFromTicket() in tickets/[id]/page.tsx and the backend's
++// TIER_ROLE_CODE (services/escalation.py): which role currently "holds" a
++// ticket for a given tier. Used below to hide the two escalate buttons from
++// roles that aren't actually holding the ticket right now -- e.g. Helpdesk
++// T1 shouldn't see "Escalate to next tier" once a ticket has moved on to T2.
++// This is UI-only convenience; the backend enforces the real check
++// (_require_current_tier_holder) regardless of what this hides or shows.
++function isCurrentTierHolder(ticket: TicketResponse, roleCode: string | null): boolean {
++  if (roleCode === "admin") return true;
++  const tier = Math.min(ticket.current_tier, MAX_TIER);
++  if (tier <= 1) return roleCode === "helpdesk_t1";
++  if (tier === 2) return roleCode === "helpdesk_t2";
++  return roleCode === "manager";
++}
++
+ function buttonClass(variant: "primary" | "secondary" | "danger" = "secondary") {
+   const base = "rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-60";
+   if (variant === "primary") return `${base} bg-accent-600 text-white hover:bg-accent-500`;
+@@ -127,7 +142,11 @@ export function TicketActions({
+     });
+   }
+ 
+-  if (can("ticket.escalate_functional") && statusName !== "Closed") {
++  if (
++    can("ticket.escalate_functional") &&
++    statusName !== "Closed" &&
++    isCurrentTierHolder(ticket, roleCode)
++  ) {
+     actions.push({
+       key: "escalateFunctional",
+       label: t("escalateFunctional"),
+@@ -135,7 +154,12 @@ export function TicketActions({
+     });
+   }
+ 
+-  if (can("ticket.escalate_technical") && statusName !== "Closed" && ticket.current_tier < MAX_TIER) {
++  if (
++    can("ticket.escalate_technical") &&
++    statusName !== "Closed" &&
++    ticket.current_tier < MAX_TIER &&
++    isCurrentTierHolder(ticket, roleCode)
++  ) {
+     actions.push({
+       key: "escalateTechnical",
+       label: t("escalateTechnical"),
+@@ -143,7 +167,11 @@ export function TicketActions({
+     });
+   }
+ 
+-  if (can("ticket.receive_escalated") && statusName === "Escalated") {
++  if (
++    can("ticket.receive_escalated") &&
++    statusName === "Escalated" &&
++    isCurrentTierHolder(ticket, roleCode)
++  ) {
+     actions.push({
+       key: "receive",
+       label: t("receive"),
