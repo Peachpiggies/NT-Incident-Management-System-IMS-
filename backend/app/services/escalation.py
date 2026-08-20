@@ -37,6 +37,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.tier_ownership import require_current_tier_holder
 from app.db.models import Department, Ticket, TicketEscalation, TicketHistory, User
 from app.services.workflow import TicketWorkflowService
 
@@ -85,6 +86,7 @@ class TicketEscalationService:
         comment: str | None = None,
     ) -> TicketEscalation:
         """Re-route to a more appropriate team. Tier is unaffected."""
+        await require_current_tier_holder(self.db, ticket, actor)
         department = await self._active_department(to_department_id)
         from_department_id = ticket.department_id
         from_user_id = ticket.assigned_to
@@ -107,6 +109,11 @@ class TicketEscalationService:
         ticket.department_id = department.id
         ticket.assigned_to = None
         ticket.updated_by = actor.id
+        # Lock the department we're escalating away from: it can't self-claim
+        # this ticket back until a supervisor manually reassigns it (see
+        # AssignmentService.claim / assign_user).
+        ticket.escalation_locked_department_id = from_department_id
+        ticket.escalation_locked_tier = ticket.current_tier
         self.db.add(
             TicketHistory(
                 ticket_id=ticket.id,
@@ -132,6 +139,7 @@ class TicketEscalationService:
         allow_tier_skip: bool = False,
     ) -> TicketEscalation:
         """Move up the expertise chain (T1 -> T2 -> T3)."""
+        await require_current_tier_holder(self.db, ticket, actor)
         if reason_code not in TECHNICAL_REASON_CODES:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -188,6 +196,11 @@ class TicketEscalationService:
             ticket.department_id = department.id
             ticket.assigned_to = None
         ticket.updated_by = actor.id
+        # Lock the tier/department we just escalated away from: it can't
+        # self-claim this ticket back until a supervisor manually reassigns
+        # it (see AssignmentService.claim / assign_user).
+        ticket.escalation_locked_department_id = from_department_id
+        ticket.escalation_locked_tier = from_tier
         self.db.add(
             TicketHistory(
                 ticket_id=ticket.id,
@@ -200,11 +213,19 @@ class TicketEscalationService:
             )
         )
         # See module docstring for why action="ticket.escalate" here.
-        await TicketWorkflowService(self.db).transition_to_code(
-            ticket,
-            "ESCALATED",
-            actor,
-            action="ticket.escalate",
-            remark=f"Technical escalation to tier {to_tier} ({reason_code})",
-        )
+        # Guard against re-triggering the same status: a ticket that has
+        # already been escalated once (status == ESCALATED) will hit this
+        # path again on every subsequent tier bump (T1->T2, T2->T3). There is
+        # no ESCALATED -> ESCALATED self-transition configured, so calling
+        # transition_to_code unconditionally raises InvalidStatusTransition
+        # ("No active transition configured from X to X") even though the
+        # tier change itself (current_tier, above) is perfectly valid.
+        if ticket.status is None or ticket.status.code != "ESCALATED":
+            await TicketWorkflowService(self.db).transition_to_code(
+                ticket,
+                "ESCALATED",
+                actor,
+                action="ticket.escalate",
+                remark=f"Technical escalation to tier {to_tier} ({reason_code})",
+            )
         return escalation

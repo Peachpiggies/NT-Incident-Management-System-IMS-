@@ -29,6 +29,47 @@ ADMIN_EMAIL = "admin@example.com"
 ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = "ChangeMe123!"
 
+# Dev-only helpdesk test accounts. Change these credentials before any
+# non-local deployment.
+DEV_USERS = [
+    {
+        "username": "helpdesk_T1",
+        "email": "helpdesk_t1@example.com",
+        "password": "ChangeMe_hd!",
+        "first_name": "Helpdesk",
+        "last_name": "T1",
+        "department_code": "HELPDESK",
+        "role_code": "helpdesk_t1",
+    },
+    {
+        "username": "TechTeam_T2",
+        "email": "techteam_t2@example.com",
+        "password": "ChangeMe_tt!",
+        "first_name": "Tech Team",
+        "last_name": "T2",
+        "department_code": "HELPDESK",
+        "role_code": "helpdesk_t2",
+    },
+    {
+        "username": "Customer_1",
+        "email": "customer1@example.com",
+        "password": "ChangeMe_cust!",
+        "first_name": "Test",
+        "last_name": "Customer",
+        "department_code": "CUSTOMER",
+        "role_code": "customer",
+    },
+    {
+        "username": "Manager_1",
+        "email": "manager@example.com",
+        "password": "ChangeMe_mgr!",
+        "first_name": "Ops",
+        "last_name": "Manager",
+        "department_code": "MANAGEMENT",
+        "role_code": "manager",
+    },
+]
+
 ROLES = [
     ("customer", "Customer", "External requester"),
     ("helpdesk_t1", "Helpdesk T1", "First-line helpdesk"),
@@ -51,10 +92,19 @@ PERMISSIONS = [
     ("ticket", "start"),
     ("ticket", "pending"),
     ("ticket", "escalate"),
+    ("ticket", "escalate_functional"),
+    ("ticket", "escalate_technical"),
     ("ticket", "receive_escalated"),
     ("ticket", "resolve"),
     ("ticket", "close"),
     ("ticket", "reopen"),
+    ("ticket", "confirm"),
+    ("ticket", "confirm_any"),
+    ("ticket", "reject"),
+    ("ticket", "reject_any"),
+    ("ticket", "comment_manage"),
+    ("ticket", "attachment_delete"),
+    ("ticket", "technical_update"),
     ("dashboard", "view"),
     ("report", "view"),
     ("user", "manage"),
@@ -108,18 +158,24 @@ ROLE_PERMISSION_CODES = {
         "ticket.comment",
         "ticket.attachment_add",
         "ticket.update",
+        "ticket.confirm",
+        "ticket.reject",
     },
     "helpdesk_t1": {
         "dashboard.view",
+        "ticket.create",
         "ticket.read_all",
         "ticket.comment",
         "ticket.attachment_add",
+        "ticket.attachment_delete",
         "ticket.update",
         "ticket.assign",
         "ticket.claim",
         "ticket.start",
         "ticket.pending",
         "ticket.escalate",
+        "ticket.escalate_functional",
+        "ticket.escalate_technical",
         "ticket.resolve",
         "ticket.close",
         "ticket.reopen",
@@ -130,14 +186,19 @@ ROLE_PERMISSION_CODES = {
     },
     "helpdesk_t2": {
         "dashboard.view",
+        "ticket.create",
         "ticket.read_all",
         "ticket.comment",
         "ticket.attachment_add",
+        "ticket.attachment_delete",
         "ticket.update",
         "ticket.internal_note",
+        "ticket.technical_update",
         "ticket.receive_escalated",
         "ticket.start",
         "ticket.pending",
+        "ticket.escalate_functional",
+        "ticket.escalate_technical",
         "ticket.resolve",
         "ticket.close",
         "ticket.reopen",
@@ -165,6 +226,7 @@ ROLE_PERMISSION_CODES = {
         "change.validate",
     },
     "manager": {
+        "ticket.create",
         "ticket.read_all",
         "ticket.assign",
         "ticket.resolve",
@@ -172,6 +234,10 @@ ROLE_PERMISSION_CODES = {
         "ticket.reopen",
         "ticket.update",
         "ticket.delete",
+        "ticket.attachment_delete",
+        "ticket.comment_manage",
+        "ticket.confirm_any",
+        "ticket.reject_any",
         "dashboard.view",
         "report.view",
         "user.manage",
@@ -217,6 +283,7 @@ async def seed_database() -> None:
             ("SERVER", "Server"),
             ("SECURITY", "Security"),
             ("MANAGEMENT", "Management"),
+            ("CUSTOMER", "Customer"),
         ]:
             departments[code] = await _get_or_create(
                 session, Department, code, name=name, is_active=True
@@ -406,6 +473,7 @@ async def seed_database() -> None:
             ("ASSIGNED", "ESCALATED", "ticket.escalate"),
             ("IN_PROGRESS", "PENDING", "ticket.pending"),
             ("PENDING", "IN_PROGRESS", "ticket.start"),
+            ("PENDING", "ESCALATED", "ticket.escalate"),
             ("IN_PROGRESS", "ESCALATED", "ticket.escalate"),
             ("ESCALATED", "IN_PROGRESS", "ticket.receive_escalated"),
             ("IN_PROGRESS", "RESOLVED", "ticket.resolve"),
@@ -531,11 +599,41 @@ async def seed_database() -> None:
         )
         if not admin_role:
             session.add(UserRole(user_id=admin.id, role_id=roles["admin"].id))
+
+        for dev_user in DEV_USERS:
+            user = await session.scalar(
+                select(User).where(User.email == dev_user["email"])
+            )
+            if not user:
+                user = User(
+                    username=dev_user["username"],
+                    email=dev_user["email"],
+                    first_name=dev_user["first_name"],
+                    last_name=dev_user["last_name"],
+                    password_hash=hash_password(dev_user["password"]),
+                    department_id=departments[dev_user["department_code"]].id,
+                    is_active=True,
+                )
+                session.add(user)
+                await session.flush()
+            user_role = await session.scalar(
+                select(UserRole).where(
+                    UserRole.user_id == user.id,
+                    UserRole.role_id == roles[dev_user["role_code"]].id,
+                )
+            )
+            if not user_role:
+                session.add(
+                    UserRole(user_id=user.id, role_id=roles[dev_user["role_code"]].id)
+                )
+
         await session.commit()
 
     print("Seed complete")
     print(f"Admin user: {ADMIN_EMAIL}")
-    print("Change the default admin password before first production use.")
+    for dev_user in DEV_USERS:
+        print(f"{dev_user['role_code']} user: {dev_user['username']} ({dev_user['email']})")
+    print("Change all default seeded passwords before first production use.")
 
 
 if __name__ == "__main__":

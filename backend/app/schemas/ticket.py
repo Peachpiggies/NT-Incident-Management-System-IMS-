@@ -278,6 +278,21 @@ class TicketDetail(BaseModel):
     status: StatusSummary
     status_id: UUID
 
+    # Drives the frontend escalation rail (customer -> t1 -> t2 -> manager)
+    # and gates which escalate/receive_escalated actions are offered, since
+    # there's no other field on this response that exposes where a ticket
+    # sits in the T1->T2->T3 expertise chain (see Ticket.current_tier).
+    current_tier: int = 1
+
+    # Set while a tier/department has escalated this ticket away and hasn't
+    # yet been overridden by a manual reassignment (see
+    # TicketEscalationService / AssignmentService.claim & assign_user). The
+    # frontend uses this to disable "Claim" and explain why, rather than
+    # letting the agent hit a 409 with no warning.
+    escalation_locked_department: DepartmentSummary | None = None
+    escalation_locked_department_id: UUID | None = None
+    escalation_locked_tier: int | None = None
+
     # keep the rest of your existing fields unchanged
 
 

@@ -1,0 +1,151 @@
+{
+  "app": {
+    "name": "NT-IMS",
+    "tagline": "Incident Management",
+    "loading": "Loading…"
+  },
+  "common": {
+    "couldntLoad": "Couldn't load this",
+    "tryAgain": "Try again"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "tickets": "Tickets",
+    "admin": "Admin",
+    "signOut": "Sign out"
+  },
+  "login": {
+    "title": "Sign in",
+    "emailLabel": "Email",
+    "passwordLabel": "Password",
+    "submit": "Sign in",
+    "submitting": "Signing in…",
+    "invalidCredentials": "Invalid email or password"
+  },
+  "localeSwitcher": {
+    "label": "Language"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "description": "Live snapshot of ticket volume, SLA health, and recent trend.",
+    "errorFallback": "Couldn't load dashboard metrics",
+    "openTickets": "Open Tickets",
+    "sla": "SLA",
+    "kpi": "KPI",
+    "trend": "Trend",
+    "noData": "No Data",
+    "onTrack": "On Track",
+    "atRisk": "At Risk",
+    "offTrack": "Off Track",
+    "ticketVolume": "Ticket Volume — Last {weeks} Weeks",
+    "tooltipTickets": "{label}: {count} tickets"
+  },
+  "tickets": {
+    "title": "Tickets",
+    "description": "Everything you're able to see, filtered live.",
+    "newTicket": "New ticket",
+    "searchPlaceholder": "Search title or description…",
+    "allStatuses": "All statuses",
+    "allPriorities": "All priorities",
+    "search": "Search",
+    "colTicket": "Ticket",
+    "colRequester": "Requester",
+    "colAssignee": "Assignee",
+    "colPriority": "Priority",
+    "colStatus": "Status",
+    "unassigned": "Unassigned",
+    "lockedBadgeTooltip": "{department} escalated this ticket away — locked until reassigned",
+    "noResults": "No tickets match these filters.",
+    "errorFallback": "Couldn't load tickets"
+  },
+  "ticketDetail": {
+    "meta": "{ticketNo} · opened by {name}",
+    "description": "Description",
+    "comments": "Comments",
+    "internal": "Internal",
+    "noComments": "No comments yet.",
+    "details": "Details",
+    "category": "Category",
+    "department": "Department",
+    "assignee": "Assignee",
+    "escalationLock": "Escalation lock",
+    "unassigned": "Unassigned",
+    "errorFallback": "Couldn't load this ticket",
+    "notFound": "Ticket not found"
+  },
+  "ticketActions": {
+    "title": "Actions",
+    "working": "Working…",
+    "cancel": "Cancel",
+    "select": "Select…",
+    "errorFallback": "That action couldn't be completed",
+    "claim": "Claim",
+    "claimLockedBanner": "{department} escalated this ticket and can't claim it back until it's reassigned.",
+    "claimLockedTooltip": "{department} escalated this ticket away — it can't be claimed back by the same team until reassigned.",
+    "assign": "Assign",
+    "assignee": "Assignee",
+    "reasonOptional": "Reason (optional)",
+    "start": "Start work",
+    "pending": "Mark pending",
+    "escalate": "Escalate",
+    "escalateFunctional": "Escalate to another team",
+    "escalateTechnical": "Escalate to next tier",
+    "targetDepartment": "Target department",
+    "targetTier": "Target tier",
+    "tier": "Tier {tier}",
+    "reasonCodeLabel": "Reason",
+    "commentOptional": "Comment (optional)",
+    "receive": "Receive escalated ticket",
+    "resolve": "Resolve",
+    "close": "Close",
+    "reopen": "Reopen",
+    "confirm": "Confirm resolution",
+    "reject": "Reject resolution",
+    "reasonRequired": "Reason",
+    "reasonCode": {
+      "SKILL_REQUIRED": "Skill required",
+      "COMPLEXITY": "Complexity",
+      "ACCESS_REQUIRED": "Access required",
+      "SYSTEM_DEPENDENCY": "System dependency",
+      "UNRESOLVED_AFTER_ATTEMPTS": "Unresolved after attempts",
+      "SLA_RISK": "SLA risk",
+      "MDDR_RISK": "MDDR risk"
+    }
+  },
+  "newTicket": {
+    "title": "New ticket",
+    "description": "Describe what's happening — we'll route it from here.",
+    "titleLabel": "Title",
+    "titlePlaceholder": "Short summary of the issue",
+    "descriptionLabel": "Description",
+    "descriptionPlaceholder": "What happened, when, and what you've already tried",
+    "category": "Category",
+    "select": "Select…",
+    "subcategory": "Subcategory (optional)",
+    "none": "None",
+    "priority": "Priority",
+    "creating": "Creating…",
+    "createButton": "Create ticket",
+    "errorFallback": "Couldn't create the ticket"
+  },
+  "admin": {
+    "title": "Users",
+    "description": "Everyone with an account on this platform.",
+    "errorFallback": "Couldn't load users — you may not have user.manage permission",
+    "restricted": "Admin tools are only available to the admin role.",
+    "colName": "Name",
+    "colEmail": "Email",
+    "colRoles": "Roles",
+    "colDepartment": "Department",
+    "colStatus": "Status",
+    "active": "Active",
+    "inactive": "Inactive"
+  },
+  "role": {
+    "customer": "Customer",
+    "helpdesk_t1": "Helpdesk T1",
+    "helpdesk_t2": "Helpdesk T2",
+    "manager": "Manager",
+    "admin": "Admin"
+  }
+}

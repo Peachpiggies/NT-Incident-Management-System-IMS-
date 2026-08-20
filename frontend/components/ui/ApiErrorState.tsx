@@ -1,14 +1,19 @@
+"use client";
+
+import { useTranslations } from "next-intl";
+
 export function ApiErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  const t = useTranslations("common");
   return (
     <div className="rounded-card border border-ink-100 bg-white p-8 text-center">
-      <p className="text-sm font-medium text-ink-950">Couldn&apos;t load this</p>
+      <p className="text-sm font-medium text-ink-950">{t("couldntLoad")}</p>
       <p className="mt-1 text-sm text-ink-500">{message}</p>
       {onRetry && (
         <button
           onClick={onRetry}
           className="mt-4 rounded-md bg-ink-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-ink-800"
         >
-          Try again
+          {t("tryAgain")}
         </button>
       )}
     </div>

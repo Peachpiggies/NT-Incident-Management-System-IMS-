@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
+import { useRouter } from "@/i18n/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Sidebar } from "@/components/nav/Sidebar";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
+  const t = useTranslations("app");
   const { status } = useAuth();
   const router = useRouter();
 
@@ -16,7 +18,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   if (status !== "authed") {
     return (
       <main className="flex min-h-screen items-center justify-center bg-ink-50">
-        <p className="text-sm text-ink-500">Loading…</p>
+        <p className="text-sm text-ink-500">{t("loading")}</p>
       </main>
     );
   }

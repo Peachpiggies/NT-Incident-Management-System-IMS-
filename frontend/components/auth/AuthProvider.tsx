@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import * as authApi from "@/lib/api/auth";
 import * as usersApi from "@/lib/api/users";
 import { apiErrorMessage } from "@/lib/api/client";
@@ -21,6 +22,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const t = useTranslations("login");
   const router = useRouter();
   const [user, setUser] = useState<UserResponse | null>(null);
   const [status, setStatus] = useState<AuthContextValue["status"]>("loading");
@@ -58,7 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await loadProfile();
         router.push("/dashboard");
       } catch (err) {
-        setError(apiErrorMessage(err, "Invalid email or password"));
+        setError(apiErrorMessage(err, t("invalidCredentials")));
         throw err;
       }
     },

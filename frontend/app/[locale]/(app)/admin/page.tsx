@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { listUsers } from "@/lib/api/users";
 import { apiErrorMessage } from "@/lib/api/client";
@@ -16,6 +17,8 @@ import { RoleBadge } from "@/components/ui/Badge";
 // app/api/v1/users.py), so a non-admin hitting this page directly still
 // gets a 403 from the API, not just a hidden nav link.
 export default function AdminPage() {
+  const t = useTranslations("admin");
+  const tApp = useTranslations("app");
   const { roleCode } = useAuth();
   const [users, setUsers] = useState<UserResponse[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -27,7 +30,7 @@ export default function AdminPage() {
     try {
       setUsers(await listUsers());
     } catch (err) {
-      setError(apiErrorMessage(err, "Couldn't load users — you may not have user.manage permission"));
+      setError(apiErrorMessage(err, t("errorFallback")));
     } finally {
       setLoading(false);
     }
@@ -35,20 +38,19 @@ export default function AdminPage() {
 
   useEffect(() => {
     void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (roleCode !== "admin") {
-    return (
-      <ApiErrorState message="Admin tools are only available to the admin role." />
-    );
+    return <ApiErrorState message={t("restricted")} />;
   }
 
   return (
     <div>
-      <PageHeader title="Users" description="Everyone with an account on this platform." />
+      <PageHeader title={t("title")} description={t("description")} />
 
       <div className="overflow-hidden rounded-card border border-ink-100 bg-white">
-        {loading && <p className="px-5 py-8 text-center text-sm text-ink-500">Loading…</p>}
+        {loading && <p className="px-5 py-8 text-center text-sm text-ink-500">{tApp("loading")}</p>}
         {error && (
           <div className="p-5">
             <ApiErrorState message={error} onRetry={load} />
@@ -58,11 +60,11 @@ export default function AdminPage() {
           <table className="w-full text-left text-sm">
             <thead className="border-b border-ink-100 bg-ink-50 text-xs font-medium uppercase tracking-wide text-ink-500">
               <tr>
-                <th className="px-5 py-3">Name</th>
-                <th className="px-5 py-3">Email</th>
-                <th className="px-5 py-3">Roles</th>
-                <th className="px-5 py-3">Department</th>
-                <th className="px-5 py-3">Status</th>
+                <th className="px-5 py-3">{t("colName")}</th>
+                <th className="px-5 py-3">{t("colEmail")}</th>
+                <th className="px-5 py-3">{t("colRoles")}</th>
+                <th className="px-5 py-3">{t("colDepartment")}</th>
+                <th className="px-5 py-3">{t("colStatus")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-ink-100">
@@ -84,7 +86,7 @@ export default function AdminPage() {
                         user.is_active ? "bg-green-100 text-green-700" : "bg-ink-100 text-ink-500"
                       }`}
                     >
-                      {user.is_active ? "Active" : "Inactive"}
+                      {user.is_active ? t("active") : t("inactive")}
                     </span>
                   </td>
                 </tr>

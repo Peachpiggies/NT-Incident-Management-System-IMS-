@@ -676,6 +676,22 @@ class Ticket(BaseModel):
 
     current_tier: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
+    # Set to the department that just escalated this ticket away (functional
+    # or technical), i.e. the tier the ticket "came from". While set, that
+    # same department is blocked from self-claiming the ticket back (see
+    # AssignmentService.claim) -- prevents a tier immediately reclaiming work
+    # it just decided it couldn't/shouldn't handle. Cleared automatically by
+    # any manual AssignmentService.assign_user() call, since a supervisor
+    # explicitly choosing an assignee is a deliberate override of the lock.
+    escalation_locked_department_id: Mapped[UUID | None] = mapped_column(
+        Uuid, ForeignKey("departments.id")
+    )
+
+    # Tier value at the moment escalation_locked_department_id was set, kept
+    # purely for display/audit -- the enforced check in claim() is by
+    # department, since each tier maps to a distinct Department in this app.
+    escalation_locked_tier: Mapped[int | None] = mapped_column(Integer)
+
     sla_breached: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # MDDR checkpoints: occurred -> detected -> diagnosed -> resolved (resolved_at below)
@@ -731,6 +747,10 @@ class Ticket(BaseModel):
         return self.requester
 
     department: Mapped[Department | None] = relationship(foreign_keys=[department_id])
+
+    escalation_locked_department: Mapped[Department | None] = relationship(
+        foreign_keys=[escalation_locked_department_id]
+    )
 
     category: Mapped[TicketCategory] = relationship(back_populates="tickets")
 

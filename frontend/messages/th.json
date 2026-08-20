@@ -1,0 +1,151 @@
+{
+  "app": {
+    "name": "NT-IMS",
+    "tagline": "ระบบจัดการเหตุขัดข้อง",
+    "loading": "กำลังโหลด…"
+  },
+  "common": {
+    "couldntLoad": "โหลดข้อมูลไม่สำเร็จ",
+    "tryAgain": "ลองใหม่อีกครั้ง"
+  },
+  "nav": {
+    "dashboard": "แดชบอร์ด",
+    "tickets": "ตั๋วงาน",
+    "admin": "ผู้ดูแลระบบ",
+    "signOut": "ออกจากระบบ"
+  },
+  "login": {
+    "title": "เข้าสู่ระบบ",
+    "emailLabel": "อีเมล",
+    "passwordLabel": "รหัสผ่าน",
+    "submit": "เข้าสู่ระบบ",
+    "submitting": "กำลังเข้าสู่ระบบ…",
+    "invalidCredentials": "อีเมลหรือรหัสผ่านไม่ถูกต้อง"
+  },
+  "localeSwitcher": {
+    "label": "ภาษา"
+  },
+  "dashboard": {
+    "title": "แดชบอร์ด",
+    "description": "ภาพรวมล่าสุดของจำนวนตั๋วงาน สถานะ SLA และแนวโน้มล่าสุด",
+    "errorFallback": "โหลดข้อมูลแดชบอร์ดไม่สำเร็จ",
+    "openTickets": "ตั๋วงานที่เปิดอยู่",
+    "sla": "SLA",
+    "kpi": "KPI",
+    "trend": "แนวโน้ม",
+    "noData": "ไม่มีข้อมูล",
+    "onTrack": "เป็นไปตามเป้า",
+    "atRisk": "มีความเสี่ยง",
+    "offTrack": "หลุดเป้าหมาย",
+    "ticketVolume": "จำนวนตั๋วงาน — {weeks} สัปดาห์ล่าสุด",
+    "tooltipTickets": "{label}: {count} ตั๋วงาน"
+  },
+  "tickets": {
+    "title": "ตั๋วงาน",
+    "description": "รายการทั้งหมดที่คุณมีสิทธิ์เห็น กรองผลแบบทันที",
+    "newTicket": "สร้างตั๋วงานใหม่",
+    "searchPlaceholder": "ค้นหาหัวข้อหรือรายละเอียด…",
+    "allStatuses": "ทุกสถานะ",
+    "allPriorities": "ทุกระดับความสำคัญ",
+    "search": "ค้นหา",
+    "colTicket": "ตั๋วงาน",
+    "colRequester": "ผู้แจ้ง",
+    "colAssignee": "ผู้รับผิดชอบ",
+    "colPriority": "ความสำคัญ",
+    "colStatus": "สถานะ",
+    "unassigned": "ยังไม่มอบหมาย",
+    "lockedBadgeTooltip": "{department} ยกระดับตั๋วงานนี้ออกไปแล้ว — ล็อกไว้จนกว่าจะมีการมอบหมายใหม่",
+    "noResults": "ไม่พบตั๋วงานที่ตรงกับตัวกรองนี้",
+    "errorFallback": "โหลดรายการตั๋วงานไม่สำเร็จ"
+  },
+  "ticketDetail": {
+    "meta": "{ticketNo} · เปิดโดย {name}",
+    "description": "รายละเอียด",
+    "comments": "ความคิดเห็น",
+    "internal": "ภายใน",
+    "noComments": "ยังไม่มีความคิดเห็น",
+    "details": "ข้อมูลเพิ่มเติม",
+    "category": "หมวดหมู่",
+    "department": "แผนก",
+    "assignee": "ผู้รับผิดชอบ",
+    "escalationLock": "ล็อกจากการยกระดับ",
+    "unassigned": "ยังไม่มอบหมาย",
+    "errorFallback": "โหลดข้อมูลตั๋วงานนี้ไม่สำเร็จ",
+    "notFound": "ไม่พบตั๋วงานนี้"
+  },
+  "ticketActions": {
+    "title": "การดำเนินการ",
+    "working": "กำลังดำเนินการ…",
+    "cancel": "ยกเลิก",
+    "select": "เลือก…",
+    "errorFallback": "ไม่สามารถดำเนินการนี้ได้",
+    "claim": "รับตั๋วงาน",
+    "claimLockedBanner": "{department} ได้ยกระดับตั๋วงานนี้ไปแล้ว และไม่สามารถรับกลับคืนได้จนกว่าจะมีการมอบหมายใหม่",
+    "claimLockedTooltip": "{department} ได้ยกระดับตั๋วงานนี้ออกไปแล้ว ทีมเดิมไม่สามารถรับกลับคืนได้จนกว่าจะมีการมอบหมายใหม่",
+    "assign": "มอบหมาย",
+    "assignee": "ผู้รับผิดชอบ",
+    "reasonOptional": "เหตุผล (ไม่บังคับ)",
+    "start": "เริ่มดำเนินการ",
+    "pending": "รอดำเนินการ",
+    "escalate": "ยกระดับ",
+    "escalateFunctional": "ยกระดับไปยังทีมอื่น",
+    "escalateTechnical": "ยกระดับไปยังระดับถัดไป",
+    "targetDepartment": "แผนกปลายทาง",
+    "targetTier": "ระดับปลายทาง",
+    "tier": "ระดับ {tier}",
+    "reasonCodeLabel": "เหตุผล",
+    "commentOptional": "ความคิดเห็น (ไม่บังคับ)",
+    "receive": "รับตั๋วงานที่ถูกยกระดับ",
+    "resolve": "แก้ไขปัญหาแล้ว",
+    "close": "ปิดตั๋วงาน",
+    "reopen": "เปิดตั๋วงานใหม่",
+    "confirm": "ยืนยันการแก้ไข",
+    "reject": "ปฏิเสธการแก้ไข",
+    "reasonRequired": "เหตุผล",
+    "reasonCode": {
+      "SKILL_REQUIRED": "ต้องการทักษะเฉพาะ",
+      "COMPLEXITY": "ความซับซ้อนสูง",
+      "ACCESS_REQUIRED": "ต้องการสิทธิ์เข้าถึง",
+      "SYSTEM_DEPENDENCY": "ขึ้นอยู่กับระบบอื่น",
+      "UNRESOLVED_AFTER_ATTEMPTS": "แก้ไขหลายครั้งแล้วไม่สำเร็จ",
+      "SLA_RISK": "เสี่ยงผิด SLA",
+      "MDDR_RISK": "เสี่ยงผิด MDDR"
+    }
+  },
+  "newTicket": {
+    "title": "สร้างตั๋วงานใหม่",
+    "description": "อธิบายสิ่งที่เกิดขึ้น แล้วเราจะส่งต่อให้ทีมที่เกี่ยวข้อง",
+    "titleLabel": "หัวข้อ",
+    "titlePlaceholder": "สรุปปัญหาโดยย่อ",
+    "descriptionLabel": "รายละเอียด",
+    "descriptionPlaceholder": "เกิดอะไรขึ้น เมื่อไหร่ และคุณลองแก้ไขอะไรไปแล้วบ้าง",
+    "category": "หมวดหมู่",
+    "select": "เลือก…",
+    "subcategory": "หมวดหมู่ย่อย (ไม่บังคับ)",
+    "none": "ไม่มี",
+    "priority": "ความสำคัญ",
+    "creating": "กำลังสร้าง…",
+    "createButton": "สร้างตั๋วงาน",
+    "errorFallback": "สร้างตั๋วงานไม่สำเร็จ"
+  },
+  "admin": {
+    "title": "ผู้ใช้งาน",
+    "description": "ผู้ใช้งานทั้งหมดที่มีบัญชีบนแพลตฟอร์มนี้",
+    "errorFallback": "โหลดรายชื่อผู้ใช้ไม่สำเร็จ — คุณอาจไม่มีสิทธิ์ user.manage",
+    "restricted": "เครื่องมือผู้ดูแลระบบใช้ได้เฉพาะบทบาทผู้ดูแลระบบเท่านั้น",
+    "colName": "ชื่อ",
+    "colEmail": "อีเมล",
+    "colRoles": "บทบาท",
+    "colDepartment": "แผนก",
+    "colStatus": "สถานะ",
+    "active": "ใช้งานอยู่",
+    "inactive": "ไม่ใช้งาน"
+  },
+  "role": {
+    "customer": "ลูกค้า",
+    "helpdesk_t1": "ฝ่ายช่วยเหลือ T1",
+    "helpdesk_t2": "ฝ่ายช่วยเหลือ T2",
+    "manager": "ผู้จัดการ",
+    "admin": "ผู้ดูแลระบบ"
+  }
+}
