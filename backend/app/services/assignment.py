@@ -158,6 +158,17 @@ class AssignmentService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Ticket does not belong to your department",
             )
+        if (
+            ticket.escalation_locked_department_id is not None
+            and actor.department_id == ticket.escalation_locked_department_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "This tier escalated this ticket and cannot claim it "
+                    "back until it is reassigned"
+                ),
+            )
         ticket.assigned_to = actor.id
         ticket.updated_by = actor.id
         await TicketWorkflowService(self.db).transition_to_code(
@@ -190,6 +201,11 @@ class AssignmentService:
         previous_assignee = ticket.assigned_to
         ticket.assigned_to = assignee.id
         ticket.updated_by = actor.id
+        # A supervisor deliberately picking an assignee is an explicit
+        # reassignment: it overrides any "can't claim back" lock left by a
+        # prior escalation (see TicketEscalationService / claim()).
+        ticket.escalation_locked_department_id = None
+        ticket.escalation_locked_tier = None
         await TicketWorkflowService(self.db).transition_to_code(
             ticket, "ASSIGNED", actor, action="ticket.assign", remark=reason
         )

@@ -107,6 +107,11 @@ class TicketEscalationService:
         ticket.department_id = department.id
         ticket.assigned_to = None
         ticket.updated_by = actor.id
+        # Lock the department we're escalating away from: it can't self-claim
+        # this ticket back until a supervisor manually reassigns it (see
+        # AssignmentService.claim / assign_user).
+        ticket.escalation_locked_department_id = from_department_id
+        ticket.escalation_locked_tier = ticket.current_tier
         self.db.add(
             TicketHistory(
                 ticket_id=ticket.id,
@@ -188,6 +193,11 @@ class TicketEscalationService:
             ticket.department_id = department.id
             ticket.assigned_to = None
         ticket.updated_by = actor.id
+        # Lock the tier/department we just escalated away from: it can't
+        # self-claim this ticket back until a supervisor manually reassigns
+        # it (see AssignmentService.claim / assign_user).
+        ticket.escalation_locked_department_id = from_department_id
+        ticket.escalation_locked_tier = from_tier
         self.db.add(
             TicketHistory(
                 ticket_id=ticket.id,
@@ -200,12 +210,19 @@ class TicketEscalationService:
             )
         )
         # See module docstring for why action="ticket.escalate" here.
-        if ticket.status.code != "ESCALATED":
+        # Guard against re-triggering the same status: a ticket that has
+        # already been escalated once (status == ESCALATED) will hit this
+        # path again on every subsequent tier bump (T1->T2, T2->T3). There is
+        # no ESCALATED -> ESCALATED self-transition configured, so calling
+        # transition_to_code unconditionally raises InvalidStatusTransition
+        # ("No active transition configured from X to X") even though the
+        # tier change itself (current_tier, above) is perfectly valid.
+        if ticket.status is None or ticket.status.code != "ESCALATED":
             await TicketWorkflowService(self.db).transition_to_code(
                 ticket,
                 "ESCALATED",
                 actor,
                 action="ticket.escalate",
                 remark=f"Technical escalation to tier {to_tier} ({reason_code})",
-        )
+            )
         return escalation
