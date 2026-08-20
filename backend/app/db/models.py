@@ -748,6 +748,10 @@ class Ticket(BaseModel):
 
     department: Mapped[Department | None] = relationship(foreign_keys=[department_id])
 
+    escalation_locked_department: Mapped[Department | None] = relationship(
+        foreign_keys=[escalation_locked_department_id]
+    )
+
     category: Mapped[TicketCategory] = relationship(back_populates="tickets")
 
     subcategory: Mapped[TicketSubcategory | None] = relationship(

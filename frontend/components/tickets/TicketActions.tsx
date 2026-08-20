@@ -68,6 +68,10 @@ export function TicketActions({
   const isRequester = user?.id === ticket.requester_id;
   const can = (code: string) => hasPermission(roleCode, code);
 
+  const claimLockedForMe =
+    ticket.escalation_locked_department_id !== null &&
+    user?.department?.id === ticket.escalation_locked_department_id;
+
   async function run(key: string, action: () => Promise<unknown>) {
     setError(null);
     setBusy(key);
@@ -81,7 +85,7 @@ export function TicketActions({
     }
   }
 
-  const actions: { key: string; label: string; onClick: () => void; variant?: "primary" | "secondary" | "danger" }[] = [];
+  const actions: { key: string; label: string; onClick: () => void; variant?: "primary" | "secondary" | "danger"; disabled?: boolean; title?: string }[] = [];
 
   if (can("ticket.claim") && !ticket.assigned_to) {
     actions.push({
@@ -89,6 +93,12 @@ export function TicketActions({
       label: t("claim"),
       onClick: () => run("claim", () => claimTicket(ticket.id)),
       variant: "primary",
+      disabled: claimLockedForMe,
+      title: claimLockedForMe
+        ? t("claimLockedTooltip", {
+            department: ticket.escalation_locked_department?.name ?? "",
+          })
+        : undefined,
     });
   }
 
@@ -181,11 +191,20 @@ export function TicketActions({
     <div className="rounded-card border border-ink-100 bg-white p-5">
       <p className="mb-3 text-sm font-medium text-ink-950">{t("title")}</p>
       {error && <p className="mb-3 text-sm font-medium text-red-600">{error}</p>}
+      {claimLockedForMe && (
+        <p className="mb-3 flex items-center gap-1.5 rounded-md bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
+          <span aria-hidden="true">🔒</span>
+          {t("claimLockedBanner", {
+            department: ticket.escalation_locked_department?.name ?? "",
+          })}
+        </p>
+      )}
       <div className="flex flex-wrap gap-2">
         {actions.map((a) => (
           <button
             key={a.key}
-            disabled={busy !== null}
+            disabled={busy !== null || a.disabled}
+            title={a.title}
             onClick={a.onClick}
             className={buttonClass(a.variant)}
           >

@@ -143,7 +143,19 @@ export default function TicketsPage() {
                     <p className="text-xs text-ink-500">{ticket.ticket_no}</p>
                   </td>
                   <td className="px-5 py-3 text-ink-700">{ticket.requester.full_name}</td>
-                  <td className="px-5 py-3 text-ink-700">{ticket.assignee?.full_name ?? t("unassigned")}</td>
+                  <td className="px-5 py-3 text-ink-700">
+                    {ticket.assignee?.full_name ?? t("unassigned")}
+                    {ticket.escalation_locked_department && (
+                      <span
+                        title={t("lockedBadgeTooltip", {
+                          department: ticket.escalation_locked_department.name,
+                        })}
+                        className="ml-1.5 inline-flex items-center rounded-full bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-800"
+                      >
+                        🔒
+                      </span>
+                    )}
+                  </td>
                   <td className="px-5 py-3">
                     <ColorBadge label={ticket.priority.name} color={ticket.priority.color} />
                   </td>

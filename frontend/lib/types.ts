@@ -168,6 +168,11 @@ export interface TicketSummary {
   requester: UserSummary;
   assignee: UserSummary | null;
   created_at: string;
+  // Present on the actual API response (list endpoints return the same
+  // TicketResponse shape as ticket detail) even though this summary type
+  // only declares a subset of fields.
+  escalation_locked_department_id?: string | null;
+  escalation_locked_department?: DepartmentSummary | null;
 }
 
 export interface TicketResponse {
@@ -188,6 +193,12 @@ export interface TicketResponse {
   status: StatusSummary;
   status_id: string;
   current_tier: number;
+  // Set while a tier/department has escalated this ticket away and hasn't
+  // been overridden by a manual reassignment yet (see backend
+  // TicketEscalationService / AssignmentService.claim & assign_user).
+  escalation_locked_department: DepartmentSummary | null;
+  escalation_locked_department_id: string | null;
+  escalation_locked_tier: number | null;
   created_at?: string;
   updated_at?: string;
 }

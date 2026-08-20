@@ -176,6 +176,18 @@ services:
 
       - "3000"
 
+    # Base docker-compose.yml sets `command: npm run dev ...` for hot-reload
+    # in local dev. That value survives file merges unless explicitly
+    # replaced here, which breaks the `runner` target's minimal image: it
+    # has no npm devDependencies (e.g. next-intl/plugin) and can't run
+    # `next dev`. Re-assert the image's real prod entrypoint (matches the
+    # runner stage's own Dockerfile CMD) so `-f docker-compose.yml -f
+    # docker-compose.prod.yml` runs the production server either way.
+    command: ["node", "server.js"]
+    volumes: !reset []
+    # No healthcheck override here
+
+
     # No healthcheck override here — the runner stage's Dockerfile already
 
     # defines HEALTHCHECK (curl against http://localhost:3000/), and Compose

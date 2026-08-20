@@ -54,6 +54,7 @@
     "colPriority": "Priority",
     "colStatus": "Status",
     "unassigned": "Unassigned",
+    "lockedBadgeTooltip": "{department} escalated this ticket away — locked until reassigned",
     "noResults": "No tickets match these filters.",
     "errorFallback": "Couldn't load tickets"
   },
@@ -67,6 +68,7 @@
     "category": "Category",
     "department": "Department",
     "assignee": "Assignee",
+    "escalationLock": "Escalation lock",
     "unassigned": "Unassigned",
     "errorFallback": "Couldn't load this ticket",
     "notFound": "Ticket not found"
@@ -78,6 +80,8 @@
     "select": "Select…",
     "errorFallback": "That action couldn't be completed",
     "claim": "Claim",
+    "claimLockedBanner": "{department} escalated this ticket and can't claim it back until it's reassigned.",
+    "claimLockedTooltip": "{department} escalated this ticket away — it can't be claimed back by the same team until reassigned.",
     "assign": "Assign",
     "assignee": "Assignee",
     "reasonOptional": "Reason (optional)",
