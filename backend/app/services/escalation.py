@@ -37,10 +37,68 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Department, Ticket, TicketEscalation, TicketHistory, User
+from app.db.models import (
+    Department,
+    Role,
+    Ticket,
+    TicketEscalation,
+    TicketHistory,
+    User,
+    UserRole,
+)
 from app.services.workflow import TicketWorkflowService
 
 MAX_TIER = 3
+
+# Mirrors the frontend's currentStepFromTicket() (tickets/[id]/page.tsx),
+# which maps Ticket.current_tier -> the escalation-rail role currently
+# holding the ticket (tier 1 -> helpdesk_t1, tier 2 -> helpdesk_t2, tier 3
+# and above -> manager, since there's no dedicated tier-3 role in this
+# backend). Used here to enforce server-side that only the role currently
+# holding the ticket -- not just any role with the endpoint permission --
+# can escalate it further. "admin" is exempt: system administrators can
+# act on any ticket regardless of tier.
+TIER_ROLE_CODE = {1: "helpdesk_t1", 2: "helpdesk_t2", 3: "manager"}
+
+
+async def _require_current_tier_holder(db: AsyncSession, ticket: Ticket, actor: User) -> None:
+    """Raise 403 unless `actor` holds the role for `ticket`'s current tier.
+
+    `require_permission("ticket.escalate_technical"/"...functional")` only
+    checks whether the actor's role has that permission *at all* -- it does
+    not check whether the actor is actually the team currently holding the
+    ticket. Without this, e.g. a Helpdesk T1 user (or any Manager/Admin)
+    could escalate a ticket that has already moved on to T2/T3, since their
+    role still carries the generic permission. This closes that gap by
+    additionally requiring the actor's own role to match the tier the
+    ticket is *currently* sitting at.
+    """
+    role_codes = set(
+        (
+            await db.execute(
+                select(Role.code)
+                .join(UserRole, UserRole.role_id == Role.id)
+                .where(
+                    UserRole.user_id == actor.id,
+                    UserRole.is_deleted.is_(False),
+                    Role.is_deleted.is_(False),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if "admin" in role_codes:
+        return
+    required_role = TIER_ROLE_CODE.get(min(ticket.current_tier, MAX_TIER))
+    if required_role not in role_codes:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Only the team currently holding this ticket "
+                f"(tier {ticket.current_tier}) or an admin can escalate it"
+            ),
+        )
 
 # Controlled vocabulary for TECHNICAL escalation reasons. SLA_RISK / MDDR_RISK
 # correspond to Ticket.sla_breached and the occurred/detected/diagnosed
@@ -85,6 +143,7 @@ class TicketEscalationService:
         comment: str | None = None,
     ) -> TicketEscalation:
         """Re-route to a more appropriate team. Tier is unaffected."""
+        await _require_current_tier_holder(self.db, ticket, actor)
         department = await self._active_department(to_department_id)
         from_department_id = ticket.department_id
         from_user_id = ticket.assigned_to
@@ -137,6 +196,7 @@ class TicketEscalationService:
         allow_tier_skip: bool = False,
     ) -> TicketEscalation:
         """Move up the expertise chain (T1 -> T2 -> T3)."""
+        await _require_current_tier_holder(self.db, ticket, actor)
         if reason_code not in TECHNICAL_REASON_CODES:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

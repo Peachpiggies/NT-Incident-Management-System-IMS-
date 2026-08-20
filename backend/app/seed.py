@@ -473,6 +473,7 @@ async def seed_database() -> None:
             ("ASSIGNED", "ESCALATED", "ticket.escalate"),
             ("IN_PROGRESS", "PENDING", "ticket.pending"),
             ("PENDING", "IN_PROGRESS", "ticket.start"),
+            ("PENDING", "ESCALATED", "ticket.escalate"),
             ("IN_PROGRESS", "ESCALATED", "ticket.escalate"),
             ("ESCALATED", "IN_PROGRESS", "ticket.receive_escalated"),
             ("IN_PROGRESS", "RESOLVED", "ticket.resolve"),

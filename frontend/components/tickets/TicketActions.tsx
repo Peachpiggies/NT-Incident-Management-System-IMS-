@@ -42,6 +42,21 @@ const TECHNICAL_REASON_CODES: TicketTechnicalReasonCode[] = [
 
 const MAX_TIER = 3;
 
+// Mirrors currentStepFromTicket() in tickets/[id]/page.tsx and the backend's
+// TIER_ROLE_CODE (services/escalation.py): which role currently "holds" a
+// ticket for a given tier. Used below to hide the two escalate buttons from
+// roles that aren't actually holding the ticket right now -- e.g. Helpdesk
+// T1 shouldn't see "Escalate to next tier" once a ticket has moved on to T2.
+// This is UI-only convenience; the backend enforces the real check
+// (_require_current_tier_holder) regardless of what this hides or shows.
+function isCurrentTierHolder(ticket: TicketResponse, roleCode: string | null): boolean {
+  if (roleCode === "admin") return true;
+  const tier = Math.min(ticket.current_tier, MAX_TIER);
+  if (tier <= 1) return roleCode === "helpdesk_t1";
+  if (tier === 2) return roleCode === "helpdesk_t2";
+  return roleCode === "manager";
+}
+
 function buttonClass(variant: "primary" | "secondary" | "danger" = "secondary") {
   const base = "rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-60";
   if (variant === "primary") return `${base} bg-accent-600 text-white hover:bg-accent-500`;
@@ -127,7 +142,11 @@ export function TicketActions({
     });
   }
 
-  if (can("ticket.escalate_functional") && statusName !== "Closed") {
+  if (
+    can("ticket.escalate_functional") &&
+    statusName !== "Closed" &&
+    isCurrentTierHolder(ticket, roleCode)
+  ) {
     actions.push({
       key: "escalateFunctional",
       label: t("escalateFunctional"),
@@ -135,7 +154,12 @@ export function TicketActions({
     });
   }
 
-  if (can("ticket.escalate_technical") && statusName !== "Closed" && ticket.current_tier < MAX_TIER) {
+  if (
+    can("ticket.escalate_technical") &&
+    statusName !== "Closed" &&
+    ticket.current_tier < MAX_TIER &&
+    isCurrentTierHolder(ticket, roleCode)
+  ) {
     actions.push({
       key: "escalateTechnical",
       label: t("escalateTechnical"),
